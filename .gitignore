@@ -1,0 +1,60 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.python-version
+
+# Test, lint, type-check, and coverage output
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Build and packaging output
+*.egg-info/
+dist/
+build/
+site/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*.local
+
+# Local app data, vector stores, and databases
+data/*.sqlite3
+data/*.db
+data/chroma/
+data/eval_chroma/
+data/test_tmp/
+pytest-cache-files-*/
+
+# Logs and runtime files
+*.log
+logs/
+*.pid
+*.seed
+
+# Jupyter notebooks
+.ipynb_checkpoints/
+
+# Editors and operating system files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
