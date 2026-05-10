@@ -12,7 +12,13 @@ from travel_agent.rag.api import (
     retrieve_destination_evidence,
     search_destination_knowledge,
 )
-from travel_agent.rag.config import EmbeddingProviderName, RagConfig, RetrievalMode
+from travel_agent.rag.config import (
+    EmbeddingProviderName,
+    KeywordTokenizerName,
+    RagConfig,
+    RerankerName,
+    RetrievalMode,
+)
 from travel_agent.rag.evaluation import EvalReport, evaluate_rag
 from travel_agent.rag.models import (
     AnswerResponse,
@@ -26,8 +32,10 @@ from travel_agent.rag.service import RagRetriever, RagService
 
 __all__ = [
     "IngestReport",
+    "KeywordTokenizerName",
     "QueryResponse",
     "RagConfig",
+    "RerankerName",
     "RagService",
     "RagRetriever",
     "RetrievalMode",

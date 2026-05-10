@@ -73,6 +73,7 @@ class RetrievalTrace:
     travel_type: str
     season: str
     embedding_provider: str
+    reranker: str
     collection_version: str
     metadata_filters: dict[str, Any]
     vector_hits: list[dict[str, Any]]

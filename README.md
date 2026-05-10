@@ -1,8 +1,8 @@
 # travel-agent
 
-纯 RAG 旅行目的地知识库项目。
+旅行目的地知识库与 LangGraph Agent MVP 项目。
 
-本项目当前只做 RAG，不接入 LLM，不做 Agent 工作流，不做路线规划生成。系统负责导入目的地知识库文档（支持 `md` / `markdown` / `txt` / `pdf`）、切片、向量化、写入本地 Chroma 向量数据库，并支持检索、按目的地过滤、抽取式问答和召回质量评测。
+本项目以纯 RAG 为基础，负责导入目的地知识库文档（支持 `md` / `markdown` / `txt` / `pdf`）、切片、向量化、写入本地 Chroma 向量数据库，并支持检索、按目的地过滤、抽取式问答和召回质量评测。当前也包含 LangGraph Agent MVP：它通过规则解析用户需求，复用 `RagService.retrieve_evidence()` 获取证据，优先使用结构化 LLM planner 生成 `TravelPlan`，没有 API Key 或 LLM 调用失败时自动回退到规则模板。
 
 ## 项目边界
 
@@ -21,16 +21,15 @@
 - 增量重建已扫描文档的索引 chunk，并维护 ingest manifest
 - 面向后续 Agent 节点的结构化 evidence 输出
 - 纯 RAG 检索 trace、延迟统计和离线 eval 命令
+- LangGraph Agent MVP
+- `travel-agent plan` CLI
 
 当前阶段不包含：
 
-- 不调用 ChatGPT / ChatOpenAI / 任何聊天 LLM
-- 不生成完整旅行路线
-- 不做 LangGraph Agent 工作流
 - 不做天气、地图、预算、拥挤风险工具调用
 - 不做 Langfuse / LangSmith 监控
 
-说明：通义千问、OpenAI Embedding 和 sentence-transformers 都只是向量化模型，不是聊天 LLM。没有 API Key 或本地模型时可以使用 `LocalHashEmbeddings` 跑 demo 和测试。
+说明：RAG 模块中的通义千问、OpenAI Embedding 和 sentence-transformers 都只是向量化模型，不是聊天 LLM。Agent planner 默认使用通义千问 `qwen3-max` 做结构化规划；没有 `DASHSCOPE_API_KEY` / `OPENAI_API_KEY` 或 LLM 调用失败时，会自动使用规则生成 fallback。没有 API Key 或本地模型时可以使用 `LocalHashEmbeddings` 跑 demo 和测试。
 
 ## 已实现能力
 
@@ -43,9 +42,9 @@
 - 使用 Chroma 作为本地持久化向量数据库。
 - 提供 invoke 兼容的 `RagRetriever`，复用项目的过滤、fallback 和 rerank 逻辑。
 - 支持 `vector`、`keyword`、`hybrid` 三种检索模式。
-- `keyword` 模式使用进程内常驻 BM25 索引，避免每次检索重建关键词索引。
+- `keyword` 模式使用进程内常驻 BM25 索引，避免每次检索重建关键词索引；中文分词默认 `auto`，优先使用可选 `jieba`，未安装时回退到内置中文词典 + 字符 / bigram tokenizer。
 - `hybrid` 模式使用向量检索和 BM25 关键词检索，并通过可配置权重的 RRF 融合排序。
-- 使用纯本地 `KeywordOverlapReranker` 做确定性 rerank，不调用 LLM 或外部模型。
+- 默认使用纯本地 `KeywordOverlapReranker` 做确定性 rerank；可选启用本地 `bge-reranker` / cross-encoder reranker，模型不可用时默认回退到规则 reranker。
 - 使用 Typer 构建 CLI。
 - 使用 Rich 美化终端输出。
 - 使用 `.env` + `pydantic-settings` 管理配置。
@@ -58,6 +57,9 @@
 - 提供 `retrieve_evidence` 结构化证据接口，返回召回结果、query analysis、confidence 和纯 RAG trace 指标，便于后续接入 LangGraph 节点。
 - 提供 `travel-rag eval` 离线评测命令，输出 recall、MRR、precision、nDCG、keyword hit rate、metadata accuracy、empty-result 和 latency。
 - 提供 `ask` 抽取式问答：只基于召回 chunk 整理答案，不调用 LLM。
+- 提供 LangGraph Agent MVP：`parse_user_request_node`、`retrieve_evidence_node`、`generate_plan_node`、`validate_plan_node` 串联成可运行工作流。
+- 提供 planner 抽象：默认使用通义千问 `qwen3-max` 或 OpenAI 兼容 ChatModel 的 Pydantic 结构化输出，失败时自动回退到规则生成。
+- 提供 `travel-agent plan` CLI：输出解析后的旅行需求、每日行程、预算粗算、风险提醒、备选方案和 evidence sources。
 
 ## 快速开始
 
@@ -70,6 +72,18 @@ conda run -n Agent cmd /c "set PYTHONPATH=src&& python -m travel_agent.rag.cli q
 conda run -n Agent cmd /c "set PYTHONPATH=src&& python -m travel_agent.rag.cli ask ""杭州灵隐寺周末拥挤吗？"" --destination Hangzhou --embedding-provider local --top-k 3"
 ```
 
+增强中文 BM25 分词推荐安装可选 `jieba` 依赖，仍然只影响关键词检索，不接入 LLM：
+
+```powershell
+conda run -n Agent python -m pip install -e ".[keyword]"
+```
+
+启用本地 cross-encoder / bge reranker 需要安装可选 reranker 依赖。它只做候选 chunk 排序，不生成答案，也不调用聊天 LLM：
+
+```powershell
+conda run -n Agent python -m pip install -e ".[reranker]"
+```
+
 修改 `docs/destinations/` 下的知识库文档后，重新执行 `ingest` 即可替换本次扫描到的同源旧 chunk；不需要为了单个文档变化重置整个库。已经启动的 `interactive` 会话不会自动加载新文档或新代码，需输入 `q` 退出后重新启动。
 
 如果已安装为 editable package：
@@ -79,6 +93,7 @@ conda run -n Agent python -m pip install -e .
 travel-rag ingest docs\destinations --embedding-provider local
 travel-rag query "带老人去杭州三天怎么安排？" --destination Hangzhou --embedding-provider local
 travel-rag ask "杭州灵隐寺周末拥挤吗？" --destination Hangzhou --embedding-provider local
+travel-agent plan "我和父母去杭州玩3天，预算中等，不想太累" --embedding-provider local
 ```
 
 ## 使用真实 Embedding
@@ -259,6 +274,8 @@ travel-rag ingest docs\destinations --embedding-provider local --incremental
 
 ## CLI 命令
 
+### RAG CLI
+
 ```powershell
 travel-rag ingest <path>      # 导入 md / txt / pdf 文件或目录
 travel-rag query <question>   # 检索相关 chunk
@@ -278,13 +295,94 @@ travel-rag ask "东京亲子游拥挤风险是什么？" --destination Tokyo --s
 travel-rag query "杭州预算门票多少钱？" --destination Hangzhou --section budget --retrieval-mode hybrid --embedding-provider local
 ```
 
+### LangGraph Agent CLI
+
+`travel-agent` 是当前的 LangGraph Agent MVP。它不调用天气、地图、Langfuse 或 LangSmith；工作流会先做规则解析和 RAG evidence 召回，再优先使用结构化 LLM planner 生成计划。如果没有 API Key 或 LLM 调用失败，会自动回退到阶段 1 的规则模板。
+
+```powershell
+travel-agent plan "我和父母去杭州玩3天，预算中等，不想太累" --embedding-provider local
+```
+
+支持覆盖自动解析结果：
+
+```powershell
+travel-agent plan "我和父母去杭州玩，预算中等，不想太累" --destination Hangzhou --days 3 --embedding-provider local
+```
+
+输出 JSON：
+
+```powershell
+travel-agent plan "苏州三日游怎么安排" --destination Suzhou --days 3 --embedding-provider local --json
+```
+
+`plan` 命令会输出：
+
+- 解析后的旅行需求：目的地、天数、人群、预算偏好
+- 每日行程：基于召回 evidence 的规则模板安排
+- 预算粗算：交通、餐饮、门票等类别的预算偏好说明
+- 风险提醒：从风险类 evidence 或默认规则生成
+- 备选方案：优先来自 `alternatives` section，否则给出默认备选提示
+- `evidence_sources`：本次计划使用的知识库来源文件
+
+常用参数：
+
+- `--destination`：手动指定目的地，例如 `Hangzhou`、`Suzhou`
+- `--days`：手动指定行程天数
+- `--embedding-provider`：选择 embedding provider，demo 推荐 `local`
+- `--json`：输出机器可读 JSON
+
+默认 LLM planner 配置：
+
+```text
+TRAVEL_AGENT_LLM_PROVIDER=qwen
+TRAVEL_AGENT_MODEL=qwen3-max
+DASHSCOPE_API_KEY=你的通义千问 API Key
+```
+
+使用 OpenAI 兼容模型：
+
+```text
+TRAVEL_AGENT_LLM_PROVIDER=openai
+TRAVEL_AGENT_MODEL=gpt-4.1-mini
+OPENAI_API_KEY=你的 OpenAI API Key
+```
+
+如果这些 Key 为空，`travel-agent plan` 仍然可以运行，只是会使用规则 fallback。
+
+如果还没有导入知识库，请先运行：
+
+```powershell
+travel-rag ingest docs\destinations --embedding-provider local
+```
+
 默认检索模式是 `hybrid`。`--retrieval-mode` 可显式覆盖，可选：
 
 - `vector`：向量检索模式；当前 Windows / Chroma 组合下如果向量索引短暂返回空结果，会用常驻 BM25 结果兜底。
-- `keyword`：基于已 ingest chunk 的轻量 BM25 关键词检索，适合中文短 query、预算、交通、风险等关键词明显的问题。
+- `keyword`：基于已 ingest chunk 的 BM25 关键词检索，适合中文短 query、预算、交通、风险等关键词明显的问题。分词器由 `TRAVEL_RAG_KEYWORD_TOKENIZER` 控制，默认 `auto`：安装 `jieba` 时使用 jieba 分词，否则使用项目内置中文词典 + 中文字符 / bigram 兜底。
 - `hybrid`：同时执行 vector 和 keyword 检索，用 RRF 融合排序后返回。
 
 RRF 默认公式为 `score += weight / (60 + rank)`，同一个 chunk 会按 `chunk_id` 去重并累加来自不同检索器的排名贡献。`TRAVEL_RAG_RRF_K`、`TRAVEL_RAG_VECTOR_WEIGHT`、`TRAVEL_RAG_KEYWORD_WEIGHT` 可调整融合行为。
+
+中文关键词检索可选配置：
+
+```text
+TRAVEL_RAG_KEYWORD_TOKENIZER=auto      # auto / jieba / builtin
+TRAVEL_RAG_KEYWORD_USER_DICT=          # 可选 jieba 用户词典路径，每行一个词或 jieba userdict 格式
+```
+
+如果希望强制使用 jieba，可以设置 `TRAVEL_RAG_KEYWORD_TOKENIZER=jieba`；未安装 jieba 时会直接报错，便于发现环境问题。若希望完全无额外依赖运行，设为 `builtin`。用户词典适合加入景点、商圈、别名和专有名词，例如 `灵隐寺`、`雷峰塔`、`西湖断桥`、`东京迪士尼`。
+
+Reranker 默认配置为 `keyword`，即规则型 `KeywordOverlapReranker`。如需启用本地模型 rerank，可安装 `.[reranker]` 后配置：
+
+```text
+TRAVEL_RAG_RERANKER=bge-reranker       # keyword / bge-reranker / cross-encoder
+TRAVEL_RAG_RERANKER_MODEL=BAAI/bge-reranker-base
+TRAVEL_RAG_RERANKER_BATCH_SIZE=16
+TRAVEL_RAG_RERANKER_DEVICE=            # 可选：cpu / cuda
+TRAVEL_RAG_RERANKER_FALLBACK=true      # 模型加载或预测失败时回退到 keyword
+```
+
+`bge-reranker` 是 `cross-encoder` 的便捷配置，默认模型为 `BAAI/bge-reranker-base`。如果要使用其他 cross-encoder 模型，设置 `TRAVEL_RAG_RERANKER=cross-encoder` 并改 `TRAVEL_RAG_RERANKER_MODEL` 即可。reranker 只重排已召回 chunk，不生成内容，不调用 ChatGPT / ChatOpenAI / 聊天 LLM。
 
 `query` 返回检索结果：
 
@@ -408,6 +506,7 @@ for item in evidence.results:
 - `keyword_hits`：BM25 检索阶段命中的 chunk 摘要。
 - `fused_hits`：RRF 融合后的候选 chunk 摘要。
 - `reranked_hits`：本地 reranker 和 `min_score` 过滤后的最终 chunk 摘要。
+- `reranker`：本次使用的 reranker 名称，例如 `keyword` 或 `cross-encoder+fallback`。
 - `empty_result_reason`：空结果原因，例如 `empty_collection`、`no_candidates_from_retrievers`、`metadata_filters_removed_all`、`rerank_or_min_score_removed_all`。
 
 每个 hit 摘要包含 `rank`、`source`、`section` 和 `score`，方便排查某次召回为什么命中或为什么被过滤掉。
@@ -494,11 +593,40 @@ TRAVEL_RAG_RRF_K=60
 TRAVEL_RAG_VECTOR_WEIGHT=1.0
 TRAVEL_RAG_KEYWORD_WEIGHT=1.0
 TRAVEL_RAG_MIN_SCORE=0.0
+TRAVEL_RAG_KEYWORD_TOKENIZER=auto
+TRAVEL_RAG_KEYWORD_USER_DICT=
+TRAVEL_RAG_RERANKER=keyword
+TRAVEL_RAG_RERANKER_MODEL=BAAI/bge-reranker-base
+TRAVEL_RAG_RERANKER_BATCH_SIZE=16
+TRAVEL_RAG_RERANKER_DEVICE=
+TRAVEL_RAG_RERANKER_FALLBACK=true
 DASHSCOPE_API_KEY=
 OPENAI_API_KEY=
+TRAVEL_AGENT_LLM_PROVIDER=qwen
+TRAVEL_AGENT_MODEL=qwen3-max
 ```
 
 `TRAVEL_RAG_RETRIEVAL_MODE` 默认推荐使用 `hybrid`，也可设为 `vector` 或 `keyword`。CLI 和 Python API 中显式传入的 `retrieval_mode` 会覆盖配置默认值。
+
+`TRAVEL_RAG_KEYWORD_TOKENIZER` 控制 BM25 中文分词策略：
+
+- `auto`：默认值，优先使用已安装的 `jieba`，否则回退到内置中文词典。
+- `jieba`：强制使用 jieba，适合生产或评测环境；可通过 `TRAVEL_RAG_KEYWORD_USER_DICT` 加载自定义用户词典。
+- `builtin`：不依赖第三方分词库，使用项目内置旅行词典、中文单字和相邻 bigram，适合 CI、demo 和最小环境。
+
+`TRAVEL_RAG_RERANKER` 控制候选 chunk 重排策略：
+
+- `keyword`：默认值，使用规则型 `KeywordOverlapReranker`，无模型依赖。
+- `bge-reranker`：使用 sentence-transformers `CrossEncoder` 加载 `TRAVEL_RAG_RERANKER_MODEL`，默认 `BAAI/bge-reranker-base`。
+- `cross-encoder`：同样使用 `CrossEncoder`，适合指定其他 reranker 模型。
+
+启用模型 reranker 前安装：
+
+```powershell
+conda run -n Agent python -m pip install -e ".[reranker]"
+```
+
+模型 reranker 会在第一次检索 rerank 时 lazy load。`TRAVEL_RAG_RERANKER_FALLBACK=true` 时，如果本地模型未安装、下载失败或预测失败，会自动回退到 `keyword` 规则 reranker，保证纯 RAG 检索仍可用。
 
 Embedding provider 说明：
 
@@ -507,6 +635,8 @@ Embedding provider 说明：
 - `openai`：只使用 OpenAI Embedding，不调用聊天 LLM。
 - `sentence-transformers`：可选本地多语言 embedding，需要安装 `.[local-embeddings]`。
 - `auto`：优先使用 `DASHSCOPE_API_KEY` 对应的通义千问 Embedding；没有通义 Key 但有 `OPENAI_API_KEY` 时使用 OpenAI Embedding；都没有时回退到 `local`。
+
+关键词检索后端说明：当前实现仍是进程内 BM25，未引入 Elasticsearch / OpenSearch，也不会向外部服务发送 query 或文档内容。后续如果需要接入 tantivy、Elasticsearch 或 OpenSearch，建议保持 `keyword` 检索器接口不变，只替换 BM25 index 的后端实现，并继续让 `hybrid` 通过 RRF 融合结果。
 
 ## 项目结构
 
@@ -520,12 +650,18 @@ src/travel_agent/rag/
   loaders.py              # LangChain md / txt / pdf Loader
   splitters.py            # LangChain TextSplitter 工厂
   embeddings.py           # 通义千问 / OpenAI / sentence-transformers / 本地 fallback
-  keyword.py              # 常驻 BM25 关键词索引
-  rerankers.py            # Reranker 协议和纯本地 KeywordOverlapReranker
+  keyword.py              # 常驻 BM25 关键词索引与中文 tokenizer
+  rerankers.py            # Reranker 协议、规则 reranker 和可选 CrossEncoder reranker
   vector_store.py         # Chroma VectorStore 辅助函数
   langchain_adapters.py   # LangChain Document 适配工具
   models.py               # 响应模型
   config.py               # pydantic-settings 配置
+src/travel_agent/agent/
+  cli.py                  # travel-agent Typer + Rich CLI
+  graph.py                # LangGraph StateGraph 组装入口
+  nodes.py                # 规则解析、RAG evidence、计划生成、校验节点
+  schemas.py              # TravelRequest / DayPlan / BudgetItem / RiskNotice / TravelPlan
+  state.py                # TravelAgentState
 tests/                    # 单元测试和召回质量评测
 docs/destinations/        # 示例目的地 Markdown 文档
 .github/workflows/ci.yml  # GitHub Actions CI
@@ -539,6 +675,7 @@ Makefile                  # test / lint / compile / eval 快捷命令
 
 ```powershell
 conda run -n Agent cmd /c "set PYTHONPATH=src&& python -m pytest tests -q -p no:cacheprovider"
+conda run -n Agent cmd /c "set PYTHONPATH=src&& python -m pytest tests\test_agent_graph.py -q -p no:cacheprovider"
 conda run -n Agent python -m ruff check src tests
 conda run -n Agent python -m compileall src tests
 ```

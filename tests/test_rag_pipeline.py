@@ -17,10 +17,22 @@ from travel_agent.rag import (
     search_destination_knowledge,
 )
 from travel_agent.rag.cli import app
-from travel_agent.rag.config import EmbeddingProviderName, RagConfig, RetrievalMode
+from travel_agent.rag.config import (
+    EmbeddingProviderName,
+    KeywordTokenizerName,
+    RagConfig,
+    RerankerName,
+    RetrievalMode,
+)
 from travel_agent.rag.embeddings import LocalHashEmbeddings, build_embeddings
 from travel_agent.rag.evaluation import evaluate_quality_gate
 from travel_agent.rag.metadata import CHUNK_METADATA_FIELDS, split_markdown_sections
+from travel_agent.rag.models import SearchResult
+from travel_agent.rag.rerankers import (
+    CrossEncoderReranker,
+    FallbackReranker,
+    KeywordOverlapReranker,
+)
 from travel_agent.rag.service import RagService
 from travel_agent.rag.vector_store import vector_store_metadatas
 
@@ -92,6 +104,18 @@ class _FakeOpenAIEmbeddings:
 class RagPipelineTest(unittest.TestCase):
     def test_default_retrieval_mode_is_hybrid(self) -> None:
         self.assertEqual(RagConfig().retrieval_mode, RetrievalMode.HYBRID)
+
+    def test_default_keyword_tokenizer_is_auto(self) -> None:
+        self.assertEqual(RagConfig().keyword_tokenizer, KeywordTokenizerName.AUTO)
+
+    def test_default_reranker_is_keyword(self) -> None:
+        self.assertEqual(RagConfig().reranker, RerankerName.KEYWORD)
+
+    def test_empty_keyword_user_dict_is_ignored(self) -> None:
+        self.assertIsNone(RagConfig(keyword_user_dict="").keyword_user_dict)
+
+    def test_empty_reranker_device_is_ignored(self) -> None:
+        self.assertIsNone(RagConfig(reranker_device="").reranker_device)
 
     def test_default_qwen_embedding_model_is_text_embedding_v4(self) -> None:
         settings = RagConfig()
@@ -371,6 +395,61 @@ class RagPipelineTest(unittest.TestCase):
         self.assertEqual(results[0].metadata["section"], "budget")
         self.assertIn("temple tickets", results[0].content)
 
+    def test_keyword_retrieval_uses_builtin_chinese_dictionary_terms(self) -> None:
+        root = _fresh_case_dir("keyword_retrieval_chinese_dictionary")
+        docs = root / "docs"
+        docs.mkdir()
+        (docs / "hangzhou.md").write_text(
+            "---\n"
+            "destination: Hangzhou\n"
+            "city: Hangzhou\n"
+            "country: China\n"
+            "travel_type: family_free_independent\n"
+            "season: spring,autumn\n"
+            "source_type: destination_guide\n"
+            "updated_at: 2026-05-08\n"
+            "---\n"
+            "# 杭州\n"
+            "## 预算\n"
+            "灵隐寺门票和景区交通需要提前预留预算。\n\n"
+            "## 拥挤风险\n"
+            "西湖和断桥周末人多，建议错峰。\n",
+            encoding="utf-8",
+        )
+        (docs / "suzhou.md").write_text(
+            "---\n"
+            "destination: Suzhou\n"
+            "city: Suzhou\n"
+            "country: China\n"
+            "travel_type: family_free_independent\n"
+            "season: spring\n"
+            "source_type: destination_guide\n"
+            "updated_at: 2026-05-08\n"
+            "---\n"
+            "# 苏州\n"
+            "## 预算\n"
+            "园林门票和评弹茶馆适合慢游预算安排。\n",
+            encoding="utf-8",
+        )
+
+        rag = TravelRag.create(
+            persist_dir=root / "chroma",
+            embedding_provider=EmbeddingProviderName.LOCAL,
+            keyword_tokenizer=KeywordTokenizerName.BUILTIN,
+        )
+        rag.ingest(docs)
+
+        results = rag.search(
+            "灵隐寺门票多少钱",
+            top_k=1,
+            retrieval_mode=RetrievalMode.KEYWORD,
+        )
+
+        self.assertTrue(results)
+        self.assertEqual(results[0].destination, "Hangzhou")
+        self.assertEqual(results[0].metadata["section"], "budget")
+        self.assertIn("灵隐寺门票", results[0].content)
+
     def test_hybrid_retrieval_mode_returns_stable_results(self) -> None:
         root = _fresh_case_dir("hybrid_retrieval")
         docs = root / "docs"
@@ -421,6 +500,7 @@ class RagPipelineTest(unittest.TestCase):
         self.assertTrue(trace.keyword_hits)
         self.assertTrue(trace.fused_hits)
         self.assertTrue(trace.reranked_hits)
+        self.assertEqual(trace.reranker, "keyword")
         self.assertEqual(trace.reranked_hits[0]["rank"], 1)
         self.assertIn("source", trace.reranked_hits[0])
         self.assertIn("section", trace.reranked_hits[0])
@@ -441,6 +521,48 @@ class RagPipelineTest(unittest.TestCase):
         self.assertFalse(evidence.results)
         self.assertTrue(evidence.trace.empty_result)
         self.assertEqual(evidence.trace.empty_result_reason, "empty_collection")
+
+    def test_cross_encoder_reranker_orders_by_model_scores(self) -> None:
+        class FakeCrossEncoder:
+            def __init__(self, model_name: str, **kwargs: object) -> None:
+                self.model_name = model_name
+                self.kwargs = kwargs
+
+            def predict(
+                self,
+                pairs: list[tuple[str, str]],
+                batch_size: int,
+            ) -> list[float]:
+                return [0.1 if "first" in content else 0.9 for _, content in pairs]
+
+        results = [
+            SearchResult("first candidate", "a.md", "A", 0.8, {}),
+            SearchResult("second candidate", "b.md", "B", 0.2, {}),
+        ]
+
+        with patch("importlib.import_module") as import_module:
+            import_module.return_value.CrossEncoder = FakeCrossEncoder
+            reranker = CrossEncoderReranker("fake/model", batch_size=4, device="cpu")
+            reranked = reranker.rerank("query", results)
+
+        self.assertEqual(reranked[0].content, "second candidate")
+        self.assertEqual(reranked[0].score, 0.9)
+        import_module.assert_called_once_with("sentence_transformers")
+
+    def test_model_reranker_falls_back_to_keyword_when_unavailable(self) -> None:
+        results = [
+            SearchResult("灵隐寺门票预算", "a.md", "Hangzhou", 0.1, {}),
+            SearchResult("东京酒店交通", "b.md", "Tokyo", 0.9, {}),
+        ]
+        reranker = FallbackReranker(
+            primary=CrossEncoderReranker("missing/model"),
+            fallback=KeywordOverlapReranker(),
+        )
+
+        with patch("importlib.import_module", side_effect=ImportError):
+            reranked = reranker.rerank("灵隐寺门票", results)
+
+        self.assertEqual(reranked[0].source, "a.md")
 
     def test_section_filter_is_inferred_from_question(self) -> None:
         root = _fresh_case_dir("infer_section")

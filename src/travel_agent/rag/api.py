@@ -8,7 +8,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from travel_agent.rag.config import EmbeddingProviderName, RagSettings, RetrievalMode
+from travel_agent.rag.config import (
+    EmbeddingProviderName,
+    KeywordTokenizerName,
+    RagSettings,
+    RerankerName,
+    RetrievalMode,
+)
 from travel_agent.rag.models import (
     AnswerResponse,
     EvidenceBundle,
@@ -34,6 +40,11 @@ class TravelRag:
         top_k: int | None = None,
         retrieval_mode: str | RetrievalMode | None = None,
         min_score: float | None = None,
+        keyword_tokenizer: str | KeywordTokenizerName | None = None,
+        keyword_user_dict: str | Path | None = None,
+        reranker: str | RerankerName | None = None,
+        reranker_model: str | None = None,
+        reranker_fallback: bool | None = None,
     ) -> TravelRag:
         """Create a reusable RAG client."""
 
@@ -45,6 +56,11 @@ class TravelRag:
                 top_k=top_k,
                 retrieval_mode=retrieval_mode,
                 min_score=min_score,
+                keyword_tokenizer=keyword_tokenizer,
+                keyword_user_dict=keyword_user_dict,
+                reranker=reranker,
+                reranker_model=reranker_model,
+                reranker_fallback=reranker_fallback,
             )
         )
 
@@ -178,6 +194,11 @@ def create_rag_service(
     top_k: int | None = None,
     retrieval_mode: str | RetrievalMode | None = None,
     min_score: float | None = None,
+    keyword_tokenizer: str | KeywordTokenizerName | None = None,
+    keyword_user_dict: str | Path | None = None,
+    reranker: str | RerankerName | None = None,
+    reranker_model: str | None = None,
+    reranker_fallback: bool | None = None,
 ) -> RagService:
     """Create a configured `RagService` for external callers."""
 
@@ -195,6 +216,16 @@ def create_rag_service(
         updates["retrieval_mode"] = _retrieval_mode(retrieval_mode)
     if min_score is not None:
         updates["min_score"] = min_score
+    if keyword_tokenizer is not None:
+        updates["keyword_tokenizer"] = _keyword_tokenizer(keyword_tokenizer)
+    if keyword_user_dict is not None:
+        updates["keyword_user_dict"] = Path(keyword_user_dict)
+    if reranker is not None:
+        updates["reranker"] = _reranker(reranker)
+    if reranker_model is not None:
+        updates["reranker_model"] = reranker_model
+    if reranker_fallback is not None:
+        updates["reranker_fallback"] = reranker_fallback
 
     if updates:
         settings = settings.model_copy(update=updates)
@@ -406,3 +437,15 @@ def _retrieval_mode(value: str | RetrievalMode) -> RetrievalMode:
     if isinstance(value, RetrievalMode):
         return value
     return RetrievalMode(value)
+
+
+def _keyword_tokenizer(value: str | KeywordTokenizerName) -> KeywordTokenizerName:
+    if isinstance(value, KeywordTokenizerName):
+        return value
+    return KeywordTokenizerName(value)
+
+
+def _reranker(value: str | RerankerName) -> RerankerName:
+    if isinstance(value, RerankerName):
+        return value
+    return RerankerName(value)

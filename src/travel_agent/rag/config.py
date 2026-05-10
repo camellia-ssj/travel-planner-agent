@@ -5,7 +5,7 @@ from __future__ import annotations
 from enum import StrEnum
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,6 +26,22 @@ class RetrievalMode(StrEnum):
     VECTOR = "vector"
     KEYWORD = "keyword"
     HYBRID = "hybrid"
+
+
+class KeywordTokenizerName(StrEnum):
+    """Supported keyword tokenizer strategies for BM25 retrieval."""
+
+    AUTO = "auto"
+    BUILTIN = "builtin"
+    JIEBA = "jieba"
+
+
+class RerankerName(StrEnum):
+    """Supported reranker strategies."""
+
+    KEYWORD = "keyword"
+    CROSS_ENCODER = "cross-encoder"
+    BGE_RERANKER = "bge-reranker"
 
 
 class RagSettings(BaseSettings):
@@ -57,6 +73,20 @@ class RagSettings(BaseSettings):
     vector_weight: float = Field(default=1.0, ge=0)
     keyword_weight: float = Field(default=1.0, ge=0)
     min_score: float = Field(default=0.0, ge=0)
+    keyword_tokenizer: KeywordTokenizerName = KeywordTokenizerName.AUTO
+    keyword_user_dict: Path | None = None
+    reranker: RerankerName = RerankerName.KEYWORD
+    reranker_model: str = "BAAI/bge-reranker-base"
+    reranker_batch_size: int = Field(default=16, gt=0)
+    reranker_device: str | None = None
+    reranker_fallback: bool = True
+
+    @field_validator("keyword_user_dict", "reranker_device", mode="before")
+    @classmethod
+    def _empty_optional_strings_are_none(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     def ensure_parent_dirs(self) -> None:
         self.persist_dir.mkdir(parents=True, exist_ok=True)

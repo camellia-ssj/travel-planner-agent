@@ -25,7 +25,7 @@ from travel_agent.rag.models import (
     RetrievalTrace,
     SearchResult,
 )
-from travel_agent.rag.rerankers import KeywordOverlapReranker, Reranker
+from travel_agent.rag.rerankers import Reranker, build_reranker
 from travel_agent.rag.splitters import build_text_splitter
 from travel_agent.rag.vector_store import (
     build_chroma_filter,
@@ -127,7 +127,7 @@ class RagService:
         self.embeddings = embeddings or build_embeddings(self.settings)
         self.vector_store = vector_store or build_vector_store(self.settings, self.embeddings)
         self.text_splitter = build_text_splitter(self.settings)
-        self.reranker = reranker or KeywordOverlapReranker()
+        self.reranker = reranker or build_reranker(self.settings)
         self._bm25_index: BM25Index | None = None
         self._bm25_collection_count = -1
 
@@ -289,6 +289,7 @@ class RagService:
             travel_type=travel_type or "",
             season=season or "",
             embedding_provider=self.settings.embedding_provider.value,
+            reranker=getattr(self.reranker, "name", self.settings.reranker.value),
             collection_version=manifest.collection_version,
             metadata_filters={
                 "retriever": _clean_filters(metadata_filters),
@@ -539,7 +540,11 @@ class RagService:
     def _keyword_index(self) -> BM25Index:
         count = vector_store_count(self.vector_store)
         if self._bm25_index is None or self._bm25_collection_count != count:
-            self._bm25_index = BM25Index.build(vector_store_documents(self.vector_store))
+            self._bm25_index = BM25Index.build(
+                vector_store_documents(self.vector_store),
+                tokenizer=self.settings.keyword_tokenizer,
+                user_dict=self.settings.keyword_user_dict,
+            )
             self._bm25_collection_count = count
         return self._bm25_index
 

@@ -1,33 +1,107 @@
-"""Lightweight keyword retrieval for travel RAG chunks."""
+"""Keyword retrieval for travel RAG chunks."""
 
 from __future__ import annotations
 
+import importlib
 import math
 import re
 from collections import Counter
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from pathlib import Path
 
 from langchain_core.documents import Document
 
+from travel_agent.rag.config import KeywordTokenizerName
+
 _WORD_RE = re.compile(r"[a-z0-9]+", flags=re.IGNORECASE)
+_CJK_RE = re.compile(r"[\u4e00-\u9fff]+")
+_USER_DICT_CACHE: set[Path] = set()
+
+_BUILTIN_CHINESE_TERMS = {
+    "八达岭",
+    "白堤",
+    "巴黎",
+    "北京",
+    "备选",
+    "博物馆",
+    "餐厅",
+    "茶馆",
+    "成都",
+    "长城",
+    "长沙",
+    "出租车",
+    "春季",
+    "打车",
+    "大理",
+    "地铁",
+    "东京",
+    "断桥",
+    "儿童",
+    "费用",
+    "高峰",
+    "高铁",
+    "公交",
+    "故宫",
+    "杭州",
+    "酒店",
+    "机场",
+    "家庭",
+    "交通",
+    "景区",
+    "老人",
+    "雷峰塔",
+    "灵隐寺",
+    "龙井",
+    "门票",
+    "民宿",
+    "亲子",
+    "亲子游",
+    "秋季",
+    "人多",
+    "人流",
+    "三天",
+    "商圈",
+    "上海",
+    "苏堤",
+    "苏州",
+    "天气",
+    "铁路",
+    "西湖",
+    "下雨",
+    "夏季",
+    "行程",
+    "预算",
+    "雨天",
+    "游客",
+    "拥挤",
+    "住宿",
+    "周末",
+}
 
 
-def bm25_search(query: str, documents: list[Document], top_k: int) -> list[tuple[Document, float]]:
+def bm25_search(
+    query: str,
+    documents: list[Document],
+    top_k: int,
+    tokenizer: KeywordTokenizerName | str = KeywordTokenizerName.AUTO,
+    user_dict: str | Path | None = None,
+) -> list[tuple[Document, float]]:
     """Return BM25-ranked documents for a query.
 
-    This intentionally avoids an extra dependency. The tokenizer supports
-    English words, individual CJK characters, and adjacent CJK bigrams, which
-    is sufficient for short Chinese travel queries such as "预算" or "交通".
+    The default tokenizer uses jieba when it is installed, while keeping a
+    dependency-free built-in tokenizer as a fallback for tests and simple demos.
     """
 
     if top_k <= 0 or not documents:
         return []
 
-    query_terms = _tokenize(query)
+    tokenize = _build_tokenizer(tokenizer, user_dict)
+    query_terms = tokenize(query)
     if not query_terms:
         return []
 
-    doc_terms = [_tokenize(document.page_content) for document in documents]
+    doc_terms = [tokenize(document.page_content) for document in documents]
     avgdl = sum(len(terms) for terms in doc_terms) / len(doc_terms)
     doc_freq: Counter[str] = Counter()
     for terms in doc_terms:
@@ -51,10 +125,17 @@ class BM25Index:
     document_terms: list[list[str]]
     doc_freq: Counter[str]
     avgdl: float
+    tokenizer: Callable[[str], list[str]] = field(repr=False)
 
     @classmethod
-    def build(cls, documents: list[Document]) -> BM25Index:
-        document_terms = [_tokenize(document.page_content) for document in documents]
+    def build(
+        cls,
+        documents: list[Document],
+        tokenizer: KeywordTokenizerName | str = KeywordTokenizerName.AUTO,
+        user_dict: str | Path | None = None,
+    ) -> BM25Index:
+        tokenize = _build_tokenizer(tokenizer, user_dict)
+        document_terms = [tokenize(document.page_content) for document in documents]
         avgdl = (
             sum(len(terms) for terms in document_terms) / len(document_terms)
             if documents
@@ -68,6 +149,7 @@ class BM25Index:
             document_terms=document_terms,
             doc_freq=doc_freq,
             avgdl=avgdl,
+            tokenizer=tokenize,
         )
 
     def search(
@@ -79,7 +161,7 @@ class BM25Index:
         if top_k <= 0 or not self.documents:
             return []
 
-        query_terms = _tokenize(query)
+        query_terms = self.tokenizer(query)
         if not query_terms:
             return []
 
@@ -125,13 +207,66 @@ def _bm25_score(
     return score
 
 
-def _tokenize(text: str) -> list[str]:
+def _build_tokenizer(
+    tokenizer: KeywordTokenizerName | str,
+    user_dict: str | Path | None,
+) -> Callable[[str], list[str]]:
+    name = KeywordTokenizerName(tokenizer)
+    if name in {KeywordTokenizerName.AUTO, KeywordTokenizerName.JIEBA}:
+        jieba_tokenize = _jieba_tokenizer(user_dict)
+        if jieba_tokenize is not None:
+            return jieba_tokenize
+        if name is KeywordTokenizerName.JIEBA:
+            raise RuntimeError(
+                "jieba is not installed. Install travel-agent[keyword] or set "
+                "TRAVEL_RAG_KEYWORD_TOKENIZER=builtin."
+            )
+    return _tokenize_builtin
+
+
+def _jieba_tokenizer(user_dict: str | Path | None) -> Callable[[str], list[str]] | None:
+    try:
+        jieba = importlib.import_module("jieba")
+    except ImportError:
+        return None
+
+    if user_dict:
+        dictionary = Path(user_dict)
+        if dictionary.exists() and dictionary not in _USER_DICT_CACHE:
+            jieba.load_userdict(str(dictionary))
+            _USER_DICT_CACHE.add(dictionary)
+
+    def tokenize(text: str) -> list[str]:
+        normalized = text.lower()
+        tokens = _WORD_RE.findall(normalized)
+        for token in jieba.cut(normalized, cut_all=False):
+            token = token.strip()
+            if token and not token.isspace():
+                tokens.append(token)
+        tokens.extend(_cjk_character_ngrams(normalized))
+        return _dedupe_preserving_order(tokens)
+
+    return tokenize
+
+
+def _tokenize_builtin(text: str) -> list[str]:
     normalized = text.lower()
     tokens = _WORD_RE.findall(normalized)
+    for run in _CJK_RE.findall(normalized):
+        tokens.extend(_dictionary_terms(run))
+        tokens.extend(_cjk_character_ngrams(run))
+    return _dedupe_preserving_order(tokens)
 
+
+def _dictionary_terms(run: str) -> list[str]:
+    return [term for term in _BUILTIN_CHINESE_TERMS if term in run]
+
+
+def _cjk_character_ngrams(text: str) -> list[str]:
+    tokens: list[str] = []
     cjk_runs: list[str] = []
     current: list[str] = []
-    for char in normalized:
+    for char in text:
         if "\u4e00" <= char <= "\u9fff":
             current.append(char)
         elif current:
@@ -145,6 +280,18 @@ def _tokenize(text: str) -> list[str]:
         tokens.extend(run[index : index + 2] for index in range(len(run) - 1))
 
     return tokens
+
+
+def _dedupe_preserving_order(tokens: list[str]) -> list[str]:
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for token in tokens:
+        token = token.strip()
+        if not token or token in seen:
+            continue
+        seen.add(token)
+        deduped.append(token)
+    return deduped
 
 
 def _matches_filters(metadata: dict[str, object], filters: dict[str, str | None]) -> bool:
