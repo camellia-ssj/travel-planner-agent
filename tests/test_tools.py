@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+
 from travel_agent.agent.nodes import (
     _detect_weekend_holiday,
     _parse_people_count,
@@ -18,7 +19,6 @@ from travel_agent.rag.models import EvidenceBundle, RetrievalTrace, SearchResult
 from travel_agent.tools.alternatives import suggest_alternatives
 from travel_agent.tools.budget import estimate_budget
 from travel_agent.tools.crowd import assess_crowd_risk
-
 
 # ---------------------------------------------------------------------------
 # Helpers
