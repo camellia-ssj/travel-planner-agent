@@ -2,21 +2,84 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
+    branches: [main]
 
 jobs:
-  test:
+  # ---- 代码质量检查 ----
+  lint:
+    name: Lint & Compile
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install
+      - name: Install dependencies
         run: python -m pip install -e ".[dev]"
-      - name: Lint
+      - name: Ruff check
         run: python -m ruff check src tests
-      - name: Test
-        run: PYTHONPATH=src python -m pytest tests -q -p no:cacheprovider
-      - name: Compile
+      - name: Compile check
         run: python -m compileall src tests
+
+  # ---- 单元测试 (Python 3.11 + 3.12) ----
+  test:
+    name: Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: python -m pip install -e ".[dev]"
+      - name: Run tests
+        env:
+          PYTHONPATH: src
+          TRAVEL_RAG_EMBEDDING_PROVIDER: local
+        run: python -m pytest tests -q -p no:cacheprovider --tb=short
+
+  # ---- RAG 评测 ----
+  rag-eval:
+    name: RAG Evaluation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: python -m pip install -e ".[dev]"
+      - name: Run RAG eval
+        env:
+          PYTHONPATH: src
+        run: python -m travel_agent.rag.cli eval --embedding-provider local --retrieval-mode hybrid --json
+
+  # ---- Agent 评测 ----
+  agent-eval:
+    name: Agent Evaluation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: python -m pip install -e ".[dev]"
+      - name: Run Agent eval
+        env:
+          PYTHONPATH: src
+        run: python -m travel_agent.agent.cli eval --json
+
+  # ---- 构建验证 (Docker) ----
+  docker-build:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Docker image
+        run: docker build -t travel-agent .

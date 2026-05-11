@@ -3,11 +3,15 @@ from __future__ import annotations
 from typer.testing import CliRunner
 
 from travel_agent.agent import (
+    AlternativePlan,
+    BudgetEstimate,
+    CrowdRiskAssessment,
     LangChainStructuredPlanner,
     RuleBasedTravelPlanner,
     TravelPlan,
     TravelRequest,
     build_travel_agent_graph,
+    build_travel_agent_resume_graph,
 )
 from travel_agent.agent.cli import app, resume_plan, run_plan
 from travel_agent.agent.schemas import BudgetItem, DayPlan, RiskNotice
@@ -295,3 +299,72 @@ def test_agent_cli_plan_json_uses_mock_rag_service(monkeypatch) -> None:
     assert '"days": 3' in result.output
     assert '"evidence_sources"' in result.output
     assert rag_service.calls[0]["destination"] == "Hangzhou"
+
+
+# ---------------------------------------------------------------------------
+# Tool integration tests
+# ---------------------------------------------------------------------------
+
+
+def test_agent_graph_produces_tool_results() -> None:
+    rag_service = MockRagService()
+    graph = build_travel_agent_graph(rag_service)
+
+    result = graph.invoke({"question": "杭州亲子三天，预算适中"})
+
+    assert isinstance(result.get("tool_budget"), BudgetEstimate)
+    assert isinstance(result.get("tool_crowd_risk"), CrowdRiskAssessment)
+    assert isinstance(result.get("tool_alternatives"), AlternativePlan)
+    assert result["tool_budget"].total > 0
+    assert result["tool_crowd_risk"].destination == "Hangzhou"
+    assert result["tool_alternatives"].destination == "Hangzhou"
+    assert result["is_valid"] is True
+
+
+def test_budget_tool_overrides_rule_based_planner() -> None:
+    rag_service = MockRagService()
+    graph = build_travel_agent_graph(rag_service)
+
+    result = graph.invoke({"question": "杭州亲子三天，预算适中"})
+    plan = result["plan"]
+    budget = result["tool_budget"]
+
+    # budget_items should come from tool_budget, not the hardcoded 3-category template
+    assert len(plan.budget_items) == 5  # accommodation, dining, transport, tickets, total
+    categories = [item.category for item in plan.budget_items]
+    assert "accommodation" in categories
+    assert "total" in categories
+    # The total item note should contain the tool's deterministic total
+    total_item = next(item for item in plan.budget_items if item.category == "total")
+    assert f"{budget.total:.0f}" in total_item.note
+
+
+def test_resume_graph_runs_tool_node() -> None:
+    rag_service = MockRagService()
+    from pathlib import Path
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        checkpoint_path = Path(tmp_dir) / "test.sqlite"
+        thread_id = "tool-resume-test"
+
+        first = run_plan(
+            "杭州亲子三天",
+            rag_service,
+            destination="Hangzhou",
+            days=3,
+            thread_id=thread_id,
+            checkpoint_path=checkpoint_path,
+        )
+        assert isinstance(first.get("tool_budget"), dict)
+        assert first["tool_budget"]["total"] > 0
+
+        resumed = resume_plan(
+            thread_id=thread_id,
+            feedback="增加雨天备选",
+            planner=RuleBasedTravelPlanner(),
+            checkpoint_path=checkpoint_path,
+        )
+        assert isinstance(resumed.get("tool_budget"), dict)
+        assert resumed["thread_id"] == thread_id
+        assert "增加雨天备选" in resumed["user_feedback"]

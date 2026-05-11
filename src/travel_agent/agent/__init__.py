@@ -7,6 +7,7 @@ from travel_agent.agent.nodes import (
     generate_plan_with_planner_node,
     parse_user_request_node,
     retrieve_evidence_node,
+    tool_node,
     validate_plan_node,
 )
 from travel_agent.agent.planner import (
@@ -16,12 +17,28 @@ from travel_agent.agent.planner import (
     TravelPlanner,
     build_default_planner,
 )
-from travel_agent.agent.schemas import BudgetItem, DayPlan, RiskNotice, TravelPlan, TravelRequest
+from travel_agent.agent.schemas import (
+    AlternativePlan,
+    AlternativeSuggestion,
+    BudgetEstimate,
+    BudgetItem,
+    CrowdRiskAssessment,
+    DayPlan,
+    POICrowdRisk,
+    RiskNotice,
+    TravelPlan,
+    TravelRequest,
+)
 from travel_agent.agent.state import TravelAgentState
 
 __all__ = [
+    "AlternativePlan",
+    "AlternativeSuggestion",
+    "BudgetEstimate",
     "BudgetItem",
+    "CrowdRiskAssessment",
     "DayPlan",
+    "POICrowdRisk",
     "RiskNotice",
     "TravelAgentState",
     "TravelPlan",
@@ -38,5 +55,6 @@ __all__ = [
     "generate_plan_with_planner_node",
     "parse_user_request_node",
     "retrieve_evidence_node",
+    "tool_node",
     "validate_plan_node",
 ]

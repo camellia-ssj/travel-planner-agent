@@ -1,0 +1,12 @@
+{"query":"杭州亲子三天，预算适中，担心周末拥挤","destination":"Hangzhou","expected_days":3,"expect_budget":true,"expect_risk_notices":true,"expected_evidence_sources":["hangzhou.md"],"category":"golden_path"}
+{"query":"东京亲子四天","destination":"Tokyo","expected_days":4,"expect_budget":true,"expect_risk_notices":true,"expected_evidence_sources":["tokyo_family.md"],"category":"golden_path"}
+{"query":"苏州二日游","destination":"Suzhou","expected_days":2,"expect_budget":true,"expect_risk_notices":true,"expected_evidence_sources":["suzhou.md"],"category":"golden_path"}
+{"query":"巴黎三天怎么安排","destination":"Paris","expected_days":3,"expect_budget":true,"expect_risk_notices":true,"expected_evidence_sources":["paris.md"],"category":"golden_path"}
+{"query":"成都亲子游，希望经济实惠","destination":"Chengdu","expected_days":1,"expect_budget":true,"expect_risk_notices":true,"expected_evidence_sources":["chengdu.md"],"category":"economy"}
+{"query":"带老人去北京玩五天","destination":"Beijing","expected_days":5,"expect_budget":true,"expect_risk_notices":true,"expected_evidence_sources":["beijing.md"],"category":"elderly"}
+{"query":"长沙周末吃什么","destination":"Changsha","expected_days":1,"expect_budget":true,"expect_risk_notices":true,"expected_evidence_sources":["changsha.md"],"category":"short_trip"}
+{"query":"大理三天慢节奏","destination":"Dali","expected_days":3,"expect_budget":true,"expect_risk_notices":true,"expected_evidence_sources":["dali.md"],"category":"golden_path"}
+{"query":"完全不存在的城市一日游","destination":"","expected_days":1,"expect_budget":true,"expect_risk_notices":true,"expected_evidence_sources":[],"low_confidence_ok":true,"expected_empty":true,"category":"low_confidence"}
+{"query":"亚特兰蒂斯七日游","destination":"Atlantis","expected_days":7,"expect_budget":true,"expect_risk_notices":true,"expected_evidence_sources":[],"expected_empty":true,"category":"empty_result"}
+{"query":"杭州杭州杭州亲子一天","destination":"Hangzhou","expected_days":1,"expect_budget":true,"expect_risk_notices":true,"expected_evidence_sources":["hangzhou.md"],"category":"repetition"}
+{"query":"情侣去大理度蜜月，预算要高端些","destination":"Dali","expected_days":1,"expect_budget":true,"expect_risk_notices":true,"expected_evidence_sources":["dali.md"],"category":"premium"}

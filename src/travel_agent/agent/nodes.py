@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 from typing import Protocol
 
 from travel_agent.agent.planner import RuleBasedTravelPlanner, TravelPlanner
 from travel_agent.agent.schemas import TravelRequest
 from travel_agent.agent.state import TravelAgentState
-from travel_agent.rag.models import EvidenceBundle
+from travel_agent.rag.models import EvidenceBundle, SearchResult
+from travel_agent.tools.alternatives import suggest_alternatives
+from travel_agent.tools.budget import estimate_budget
+from travel_agent.tools.crowd import assess_crowd_risk
 
 
 class EvidenceService(Protocol):
@@ -97,15 +101,88 @@ def retrieve_evidence_node(
     state: TravelAgentState,
     rag_service: EvidenceService,
 ) -> TravelAgentState:
-    """Retrieve RAG evidence using the existing pure RAG service contract."""
+    """Retrieve RAG evidence across multiple sections for diverse day plans."""
 
     question = state.get("question", "")
     request = state.get("request")
+    destination = request.destination if request and request.destination else None
+
+    # Fetch evidence from multiple sections so the planner can vary content
+    # across days.  We request itinerary first, then fall back to a broader
+    # unfiltered retrieval so budget/crowd-risk mentions in the query don't
+    # starve the planner of itinerary content.
     evidence = rag_service.retrieve_evidence(
         question,
-        destination=request.destination if request and request.destination else None,
+        destination=destination,
+        top_k=10,
     )
+    # If section inference narrowed results too much, supplement with a
+    # broader retrieval that skips section filtering.
+    itinerary_results = [
+        r for r in evidence.results
+        if str(r.metadata.get("section", "")) == "itinerary"
+    ]
+    if len(itinerary_results) < 3:
+        supplementary = rag_service.retrieve_evidence(
+            question,
+            destination=destination,
+            section="itinerary",
+            top_k=8,
+        )
+        if supplementary.results:
+            merged = list(evidence.results)
+            seen = {_result_dedup_key(r) for r in merged}
+            for r in supplementary.results:
+                key = _result_dedup_key(r)
+                if key not in seen:
+                    seen.add(key)
+                    merged.append(r)
+            evidence = replace(evidence, results=merged)
+
     return {"evidence": evidence}
+
+
+def tool_node(state: TravelAgentState) -> TravelAgentState:
+    """Run deterministic tools: budget, crowd risk, alternatives.
+
+    Uses query text to detect weekend/holiday keywords for crowd risk
+    and to extract explicit headcount for budget estimation.
+    """
+
+    request = state.get("request")
+    evidence = state.get("evidence")
+    if request is None or evidence is None:
+        return {
+            "tool_budget": None,
+            "tool_crowd_risk": None,
+            "tool_alternatives": None,
+        }
+
+    question = state.get("question", request.raw_query if request else "")
+    people_count = _parse_people_count(question, request.audience)
+    is_weekend_holiday = _detect_weekend_holiday(question)
+
+    budget = estimate_budget(
+        people_count=people_count,
+        days=request.days,
+        budget_level=request.budget_preference,
+        evidence=evidence,
+    )
+    crowd = assess_crowd_risk(
+        destination=request.destination,
+        evidence=evidence,
+        is_weekend_holiday=is_weekend_holiday,
+    )
+    alternatives = suggest_alternatives(
+        destination=request.destination,
+        evidence=evidence,
+        crowd_assessment=crowd,
+    )
+    return {
+        "tool_budget": budget,
+        "tool_crowd_risk": crowd,
+        "tool_alternatives": alternatives,
+    }
 
 
 def generate_plan_node(state: TravelAgentState) -> TravelAgentState:
@@ -124,7 +201,16 @@ def generate_plan_with_planner_node(
     evidence = state.get("evidence")
     if evidence is None:
         raise ValueError("generate_plan_node requires evidence in state")
-    plan = planner.plan(request, evidence, user_feedback=state.get("user_feedback", []))
+    tool_results: dict[str, object] = {
+        "tool_budget": state.get("tool_budget"),
+        "tool_crowd_risk": state.get("tool_crowd_risk"),
+        "tool_alternatives": state.get("tool_alternatives"),
+    }
+    plan = planner.plan(
+        request, evidence,
+        user_feedback=state.get("user_feedback", []),
+        tool_results=tool_results,
+    )
     return {"plan": plan}
 
 
@@ -192,3 +278,80 @@ def _parse_budget_preference(text: str) -> str:
     if any(token in normalized for token in ("适中", "中等", "standard", "mid")):
         return "standard"
     return "standard"
+
+
+_WEEKEND_HOLIDAY_KEYWORDS = [
+    "周末", "双休", "周六", "周日", "礼拜六", "礼拜天", "星期六", "星期日",
+    "周末游", "小长假", "长假", "黄金周", "国庆", "五一", "十一",
+    "清明节", "劳动节", "端午节", "中秋节", "元旦", "春节", "端午",
+    "清明", "中秋", "寒假", "暑假", "春节假期", "国定假日", "法定假日",
+    "节假日", "假期", "节假", "休假", "放假",
+    "weekend", "holiday", "vacation", "national day", "golden week",
+    "spring festival", "christmas", "new year",
+]
+
+_WEEKEND_HOLIDAY_PATTERN = re.compile(
+    "|".join(re.escape(kw) for kw in _WEEKEND_HOLIDAY_KEYWORDS),
+    flags=re.IGNORECASE,
+)
+
+
+def _detect_weekend_holiday(text: str) -> bool:
+    """Return True if the query contains weekend or holiday keywords."""
+    return bool(_WEEKEND_HOLIDAY_PATTERN.search(text))
+
+
+_PEOPLE_COUNT_PATTERNS = [
+    (re.compile(r"([一-鿿]+)(\d+)\s*个?\s*人"), lambda m: int(m.group(2))),
+    (re.compile(r"(\d+)\s*个?\s*人"), lambda m: int(m.group(1))),
+    (re.compile(r"我们\s*(\d+)\s*个"), lambda m: int(m.group(1))),
+    (re.compile(r"([\d]+)\s*(?:位|名|adults?|people|persons?)"), lambda m: int(m.group(1))),
+    (re.compile(r"一家\s*([\d一二两三])\s*口"), lambda m: _cn_digit_to_int(m.group(1))),
+    (re.compile(r"([一二两三四五六七八九十])\s*个?\s*人"), lambda m: _cn_digit_to_int(m.group(1))),
+]
+
+_PEOPLE_IMPLICIT: dict[str, int] = {
+    "一个人": 1, "独自": 1, "一个人去": 1, "单独": 1, "solo": 1,
+    "我和父母": 3, "我和爸妈": 3, "带父母": 3, "带爸妈": 3,
+    "我们俩": 2, "两个人": 2, "两人": 2, "二人": 2, "两口子": 2,
+    "一家三口": 3, "一家四口": 4, "一家五口": 5,
+    "三口之家": 3, "四口之家": 4,
+    "亲子": 3, "一家": 3,
+}
+
+
+def _cn_digit_to_int(ch: str) -> int:
+    mapping = {"一": 1, "两": 2, "二": 2, "三": 3, "四": 4, "五": 5,
+               "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
+    return mapping.get(ch, 1)
+
+
+def _parse_people_count(text: str, audience: list[str]) -> int:
+    """Extract headcount from query text. Falls back to audience length."""
+    if not text:
+        return max(1, len(audience))
+
+    for pattern, extractor in _PEOPLE_COUNT_PATTERNS:
+        match = pattern.search(text)
+        if match:
+            return max(1, extractor(match))
+
+    normalized = text.lower()
+    for phrase, count in _PEOPLE_IMPLICIT.items():
+        if phrase in normalized:
+            return count
+
+    # Fallback: audience type based — "couple" = 2, else 1 per type
+    if "couple" in audience or "情侣" in text or "夫妻" in text:
+        return 2
+    return max(1, len(audience))
+
+
+def _result_dedup_key(result: SearchResult) -> str:
+    """Stable dedup key so supplementary retrieval doesn't add duplicates."""
+    chunk_id = result.metadata.get("chunk_id")
+    if isinstance(chunk_id, str) and chunk_id:
+        return chunk_id
+    # Fallback: hash the content prefix + source
+    content_prefix = result.content[:80]
+    return f"{result.source}:{content_prefix}"

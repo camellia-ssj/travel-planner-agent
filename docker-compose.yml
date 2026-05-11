@@ -1,0 +1,94 @@
+# travel-agent Docker Compose 编排
+# 使用方式:
+#   docker compose up -d              # 启动服务
+#   docker compose run --rm rag-eval  # 运行 RAG 评测
+#   docker compose down               # 停止服务
+
+version: "3.9"
+
+services:
+  # ---- 核心服务：RAG + Agent CLI ----
+  travel-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: travel-agent:latest
+    container_name: travel-agent
+    environment:
+      - PYTHONPATH=/app/src
+      - TRAVEL_RAG_PERSIST_DIR=/app/data/chroma
+      - TRAVEL_RAG_EMBEDDING_PROVIDER=${TRAVEL_RAG_EMBEDDING_PROVIDER:-auto}
+      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - TRAVEL_AGENT_LLM_PROVIDER=${TRAVEL_AGENT_LLM_PROVIDER:-qwen}
+      - TRAVEL_AGENT_MODEL=${TRAVEL_AGENT_MODEL:-qwen3-max}
+    volumes:
+      - ./data:/app/data
+      - ./docs:/app/docs
+    stdin_open: true
+    tty: true
+    command: ["python", "-m", "travel_agent.rag.cli", "--help"]
+
+  # ---- RAG 离线评测 ----
+  rag-eval:
+    profiles: ["eval"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: travel-agent:latest
+    environment:
+      - PYTHONPATH=/app/src
+      - TRAVEL_RAG_EMBEDDING_PROVIDER=local
+    volumes:
+      - ./data/eval:/app/data
+    command:
+      - python
+      - -m
+      - travel_agent.rag.cli
+      - eval
+      - --embedding-provider
+      - local
+      - --retrieval-mode
+      - hybrid
+      - --json
+
+  # ---- Agent 离线评测 ----
+  agent-eval:
+    profiles: ["eval"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: travel-agent:latest
+    environment:
+      - PYTHONPATH=/app/src
+      - TRAVEL_RAG_EMBEDDING_PROVIDER=local
+    volumes:
+      - ./data/eval:/app/data
+    command:
+      - python
+      - -m
+      - travel_agent.agent.cli
+      - eval
+      - --json
+      - --verbose
+
+  # ---- 测试运行器 ----
+  test:
+    profiles: ["eval"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: travel-agent:latest
+    environment:
+      - PYTHONPATH=/app/src
+      - TRAVEL_RAG_EMBEDDING_PROVIDER=local
+    volumes:
+      - ./data/test:/app/data
+    command:
+      - python
+      - -m
+      - pytest
+      - tests
+      - -q
+      - -p
+      - "no:cacheprovider"

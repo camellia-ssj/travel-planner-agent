@@ -17,6 +17,7 @@ def build_planner_prompt(
     request: TravelRequest,
     evidence: EvidenceBundle,
     user_feedback: list[str] | None = None,
+    tool_results: dict[str, object] | None = None,
 ) -> str:
     """Build the user prompt for structured travel planning."""
 
@@ -27,7 +28,7 @@ def build_planner_prompt(
     ))
     sources = ", ".join(_evidence_sources(evidence.results)) or "none"
     audience = ", ".join(request.audience)
-    return (
+    prompt = (
         "Create a TravelPlan for this request.\n\n"
         f"Raw request: {request.raw_query}\n"
         f"Destination: {request.destination or evidence.query_analysis.get('destination', '')}\n"
@@ -38,6 +39,11 @@ def build_planner_prompt(
         f"Required evidence_sources: {sources}\n\n"
         "RAG evidence:\n"
         f"{evidence_text or 'No evidence retrieved.'}\n\n"
+    )
+    tool_section = _format_tool_results(tool_results)
+    if tool_section:
+        prompt += tool_section + "\n\n"
+    prompt += (
         "Constraints:\n"
         "- Output must match the TravelPlan schema.\n"
         "- destination and days must match the parsed request when present.\n"
@@ -46,6 +52,7 @@ def build_planner_prompt(
         "- alternatives should prefer evidence from section=alternatives when available.\n"
         "- risk_notices must include crowd, weather or general risk reminders when supported."
     )
+    return prompt
 
 
 def _format_result(index: int, result: SearchResult) -> str:
@@ -62,3 +69,21 @@ def _evidence_sources(results: list[SearchResult]) -> list[str]:
         if result.source and result.source not in sources:
             sources.append(result.source)
     return sources
+
+
+def _format_tool_results(tool_results: dict[str, object] | None) -> str:
+    if not tool_results:
+        return ""
+    import json
+
+    sections: list[str] = ["## 确定性工具计算结果（作为 ground truth 使用，请勿自行编造预算数字）"]
+    budget = tool_results.get("tool_budget")
+    if budget is not None:
+        sections.append(f"Budget estimate: {json.dumps(budget.model_dump(), ensure_ascii=False)}")
+    crowd = tool_results.get("tool_crowd_risk")
+    if crowd is not None:
+        sections.append(f"Crowd risk: {json.dumps(crowd.model_dump(), ensure_ascii=False)}")
+    alt = tool_results.get("tool_alternatives")
+    if alt is not None:
+        sections.append(f"Alternatives: {json.dumps(alt.model_dump(), ensure_ascii=False)}")
+    return "\n".join(sections)

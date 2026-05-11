@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -15,10 +16,18 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from travel_agent.agent.evaluation import (
+    AgentEvalCase,
+    AgentEvalMetrics,
+    build_eval_report,
+    evaluate_agent_plans,
+    load_agent_eval_cases,
+)
 from travel_agent.agent.graph import build_travel_agent_graph, build_travel_agent_resume_graph
 from travel_agent.agent.nodes import EvidenceService
 from travel_agent.agent.planner import TravelPlanner, build_default_planner
 from travel_agent.agent.schemas import TravelPlan
+from travel_agent.observability.tracer import AgentTracer, get_tracer
 from travel_agent.rag.api import create_rag_service
 from travel_agent.rag.config import EmbeddingProviderName
 
@@ -122,6 +131,59 @@ def resume(
     _print_plan(result)
 
 
+@app.command()
+def eval(
+    cases_path: Annotated[
+        Path,
+        typer.Option(
+            "--cases", "-c",
+            help="Path to JSONL eval cases (default: tests/fixtures/agent_eval_cases.jsonl)",
+        ),
+    ] = Path("tests/fixtures/agent_eval_cases.jsonl"),
+    as_json: Annotated[bool, typer.Option("--json", help="Print machine-readable JSON.")] = False,
+    verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Show per-case failures.")] = False,
+) -> None:
+    """Run offline agent evaluation with deterministic rule-based planner.
+
+    Evaluates plan quality across all cases in the JSONL fixture without any LLM calls.
+    """
+    if not cases_path.exists():
+        console.print(f"[red]Eval cases file not found: {cases_path}[/red]")
+        raise typer.Exit(code=1)
+
+    cases = load_agent_eval_cases(cases_path)
+    if not cases:
+        console.print("[red]No eval cases loaded.[/red]")
+        raise typer.Exit(code=1)
+
+    # Build a minimal evidence map from the fixture — every case that
+    # declares expected_evidence_sources gets one synthetic result per source.
+    evidence_map: dict[str, list] = {}
+    for case in cases:
+        if case.expected_evidence_sources and not case.expected_empty:
+            from travel_agent.rag.models import SearchResult
+
+            evidence_map[case.query] = [
+                SearchResult(
+                    content=f"{case.destination or 'unknown'} itinerary content for day planning.",
+                    source=src,
+                    destination=case.destination or "",
+                    score=0.9,
+                    metadata={"section": "itinerary"},
+                )
+                for src in case.expected_evidence_sources
+            ]
+
+    metrics = evaluate_agent_plans(cases, evidence_map)
+    report = build_eval_report(metrics, len(cases))
+
+    if as_json:
+        console.print_json(json.dumps(report, ensure_ascii=False))
+        return
+
+    _print_eval_report(report, metrics, verbose=verbose)
+
+
 def run_plan(
     request: str,
     rag_service: EvidenceService,
@@ -130,10 +192,17 @@ def run_plan(
     days: int | None = None,
     thread_id: str | None = None,
     checkpoint_path: Path | None = None,
+    tracer: AgentTracer | None = None,
 ) -> dict[str, Any]:
     """Run the agent graph and return a serializable payload."""
 
+    active_tracer = tracer or get_tracer()
     active_thread_id = thread_id or uuid.uuid4().hex
+    trace_ctx = active_tracer.start_run(
+        run_name="travel-agent-plan",
+        user_request=request,
+    )
+
     initial_state: dict[str, object] = _plan_initial_state(
         request,
         destination=destination,
@@ -153,6 +222,28 @@ def run_plan(
                 initial_state,
                 config=_thread_config(active_thread_id),
             )
+
+    # Record trace metrics
+    request_obj = final_state.get("request")
+    evidence = final_state.get("evidence")
+    plan = final_state["plan"]
+
+    if request_obj is not None:
+        active_tracer.record_parse(trace_ctx, request_obj)
+    if evidence is not None:
+        active_tracer.record_retrieval(trace_ctx, evidence)
+    active_tracer.record_planner(
+        trace_ctx,
+        model=os.getenv("TRAVEL_AGENT_MODEL", "qwen3-max"),
+        fallback=isinstance(planner, str) or planner is None,
+    )
+    active_tracer.record_validation(
+        trace_ctx,
+        passed=final_state.get("is_valid", False),
+        errors=final_state.get("validation_errors", []),
+    )
+    active_tracer.finish_run(trace_ctx, plan, thread_id=active_thread_id)
+
     return _state_payload(final_state, active_thread_id)
 
 
@@ -194,6 +285,11 @@ def _state_payload(final_state: dict[str, Any], thread_id: str) -> dict[str, Any
     plan = final_state["plan"]
     if not isinstance(plan, TravelPlan):
         raise typer.BadParameter("Agent graph did not return a TravelPlan.")
+
+    tool_budget = final_state.get("tool_budget")
+    tool_crowd = final_state.get("tool_crowd_risk")
+    tool_alt = final_state.get("tool_alternatives")
+
     return {
         "thread_id": thread_id,
         "original_user_request": final_state.get("original_user_request", ""),
@@ -205,6 +301,9 @@ def _state_payload(final_state: dict[str, Any], thread_id: str) -> dict[str, Any
             "is_valid": final_state.get("is_valid", False),
             "errors": final_state.get("validation_errors", []),
         },
+        "tool_budget": tool_budget.model_dump() if tool_budget is not None else None,
+        "tool_crowd_risk": tool_crowd.model_dump() if tool_crowd is not None else None,
+        "tool_alternatives": tool_alt.model_dump() if tool_alt is not None else None,
     }
 
 
@@ -310,6 +409,67 @@ def _print_list(title: str, values: list[str]) -> None:
     for index, value in enumerate(values, start=1):
         table.add_row(str(index), value)
     console.print(table)
+
+
+def _print_eval_report(
+    report: dict[str, Any],
+    metrics: AgentEvalMetrics,
+    verbose: bool = False,
+) -> None:
+    """Pretty-print agent eval results."""
+    from rich.table import Table as RichTable
+
+    m = report["metrics"]
+    r = report["run"]
+
+    console.print(Panel.fit("Agent Eval Results", border_style="cyan"))
+    console.print(
+        f"[dim]planner:[/dim] {r['planner']}  "
+        f"[dim]cases:[/dim] {r['total_cases']}  "
+        f"[dim]mode:[/dim] {r['mode']}"
+    )
+
+    table = RichTable(title="Quality Metrics")
+    table.add_column("Metric", style="cyan")
+    table.add_column("Value", style="green")
+    table.add_column("Status", style="yellow")
+
+    def _status(rate: float, threshold: float = 0.8) -> str:
+        if rate >= threshold:
+            return "[green]PASS[/green]"
+        return "[red]CHECK[/red]"
+
+    table.add_row("Days Match Rate", f"{m['days_match_rate']:.2%}", _status(m["days_match_rate"]))
+    table.add_row("Budget Present Rate", f"{m['budget_present_rate']:.2%}", _status(m["budget_present_rate"]))
+    table.add_row("Risk Notices Rate", f"{m['risk_notices_rate']:.2%}", _status(m["risk_notices_rate"]))
+    table.add_row(
+        "Evidence Source Coverage",
+        f"{m['evidence_source_coverage']:.2%}",
+        _status(m["evidence_source_coverage"]),
+    )
+    table.add_row(
+        "Low Confidence Handling",
+        f"{m['low_confidence_handling_rate']:.2%}",
+        _status(m["low_confidence_handling_rate"]),
+    )
+    table.add_row(
+        "Empty Result Handling",
+        f"{m['empty_result_handling_rate']:.2%}",
+        _status(m["empty_result_handling_rate"]),
+    )
+    table.add_row("Validation Pass Rate", f"{m['validation_pass_rate']:.2%}", _status(m["validation_pass_rate"]))
+    table.add_row("Avg Latency (ms)", f"{m['avg_latency_ms']:.2f}", "")
+    console.print(table)
+
+    if verbose and m.get("failures"):
+        console.print("\n[bold]Failures:[/bold]")
+        for failure in m["failures"]:
+            console.print(f"  [red]- {failure}[/red]")
+
+    if m.get("failures"):
+        total_failures = len(m["failures"])
+        console.print(f"\n[yellow]{total_failures} failure(s) total. Use --verbose for details.[/yellow]")
+        raise typer.Exit(code=1 if total_failures > 0 else 0)
 
 
 if __name__ == "__main__":

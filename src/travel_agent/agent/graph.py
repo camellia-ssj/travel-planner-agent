@@ -13,6 +13,7 @@ from travel_agent.agent.nodes import (
     generate_plan_with_planner_node,
     parse_user_request_node,
     retrieve_evidence_node,
+    tool_node,
     validate_plan_node,
 )
 from travel_agent.agent.planner import TravelPlanner
@@ -32,6 +33,7 @@ def build_travel_agent_graph(
         "retrieve_evidence",
         lambda state: retrieve_evidence_node(state, rag_service),
     )
+    graph.add_node("deterministic_tools", tool_node)
     if planner is None:
         graph.add_node("generate_plan", generate_plan_node)
     else:
@@ -43,7 +45,8 @@ def build_travel_agent_graph(
 
     graph.add_edge(START, "parse_user_request")
     graph.add_edge("parse_user_request", "retrieve_evidence")
-    graph.add_edge("retrieve_evidence", "generate_plan")
+    graph.add_edge("retrieve_evidence", "deterministic_tools")
+    graph.add_edge("deterministic_tools", "generate_plan")
     graph.add_edge("generate_plan", "validate_plan")
     graph.add_edge("validate_plan", END)
     return graph.compile(checkpointer=checkpointer)
@@ -57,6 +60,7 @@ def build_travel_agent_resume_graph(
 
     graph = StateGraph(TravelAgentState)
     graph.add_node("apply_feedback", apply_feedback_node)
+    graph.add_node("deterministic_tools", tool_node)
     if planner is None:
         graph.add_node("generate_plan", generate_plan_node)
     else:
@@ -67,7 +71,8 @@ def build_travel_agent_resume_graph(
     graph.add_node("validate_plan", validate_plan_node)
 
     graph.add_edge(START, "apply_feedback")
-    graph.add_edge("apply_feedback", "generate_plan")
+    graph.add_edge("apply_feedback", "deterministic_tools")
+    graph.add_edge("deterministic_tools", "generate_plan")
     graph.add_edge("generate_plan", "validate_plan")
     graph.add_edge("validate_plan", END)
     return graph.compile(checkpointer=checkpointer)
