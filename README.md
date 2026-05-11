@@ -187,34 +187,42 @@ conda run -n Agent python -m pip install -e ".[observability]"
 conda run -n Agent python -m pip install -e ".[dev]"
 ```
 
+### Conda Agent 环境开发说明
+
+- 推荐所有命令都在仓库根目录执行，并统一使用 `conda run -n Agent ...`
+- 仓库根目录内已提供开发期源码导入兼容层，未安装 editable package 时也可以直接运行 `python -m travel_agent...`
+- 如果你需要 `travel-agent` / `travel-rag` 这两个 console script，请先执行 `pip install -e .`
+- `pytest` 已固定使用工作区内的 `data/.pytest_tmp` 作为临时目录，避免 Windows 用户目录权限问题
+- 在 Windows PowerShell 下复制环境文件建议使用 `Copy-Item .env.example .env`
+
 ### 5 分钟 Demo（无需 API Key）
 
 ```powershell
 # 1. 重置索引
-conda run -n Agent cmd /c "set PYTHONPATH=src&& python -m travel_agent.rag.cli reset --embedding-provider local --yes"
+conda run -n Agent python -m travel_agent.rag.cli reset --embedding-provider local --yes
 
 # 2. 导入目的地知识库
-conda run -n Agent cmd /c "set PYTHONPATH=src&& python -m travel_agent.rag.cli ingest docs\destinations --embedding-provider local"
+conda run -n Agent python -m travel_agent.rag.cli ingest docs\destinations --embedding-provider local
 
 # 3. 检索查询
-conda run -n Agent cmd /c "set PYTHONPATH=src&& python -m travel_agent.rag.cli query \"杭州灵隐寺周末拥挤吗？\" --destination Hangzhou --top-k 3"
+conda run -n Agent python -m travel_agent.rag.cli query "杭州灵隐寺周末拥挤吗？" --destination Hangzhou --top-k 3
 
 # 4. 抽取式问答
-conda run -n Agent cmd /c "set PYTHONPATH=src&& python -m travel_agent.rag.cli ask \"杭州灵隐寺周末拥挤吗？\" --destination Hangzhou --top-k 3"
+conda run -n Agent python -m travel_agent.rag.cli ask "杭州灵隐寺周末拥挤吗？" --destination Hangzhou --top-k 3
 
 # 5. Agent 智能规划
-conda run -n Agent cmd /c "set PYTHONPATH=src&& python -m travel_agent.agent.cli plan \"我和父母去杭州玩3天，预算中等\" --embedding-provider local"
+conda run -n Agent python -m travel_agent.agent.cli plan "我和父母去杭州玩3天，预算中等" --embedding-provider local
 ```
 
 ### 使用真实 Embedding
 
 ```powershell
 # 复制并编辑 .env
-cp .env.example .env
+Copy-Item .env.example .env
 
 # 配置通义千问 API Key 后
-conda run -n Agent cmd /c "set PYTHONPATH=src&& python -m travel_agent.rag.cli ingest docs\destinations"
-conda run -n Agent cmd /c "set PYTHONPATH=src&& python -m travel_agent.agent.cli plan \"杭州三日游怎么安排\" --destination Hangzhou --days 3"
+conda run -n Agent python -m travel_agent.rag.cli ingest docs\destinations
+conda run -n Agent python -m travel_agent.agent.cli plan "杭州三日游怎么安排" --destination Hangzhou --days 3
 ```
 
 ---
@@ -358,17 +366,23 @@ agent_project/
 
 ```powershell
 # 全量测试
-conda run -n Agent cmd /c "set PYTHONPATH=src&& python -m pytest tests -q -p no:cacheprovider"
+conda run -n Agent python -m pytest tests -q -p no:cacheprovider
 
 # RAG 测试
-conda run -n Agent cmd /c "set PYTHONPATH=src&& python -m pytest tests\test_rag_pipeline.py -q -p no:cacheprovider"
+conda run -n Agent python -m pytest tests\test_rag_pipeline.py -q -p no:cacheprovider
 
 # Agent 集成测试
-conda run -n Agent cmd /c "set PYTHONPATH=src&& python -m pytest tests\test_agent_graph.py -q -p no:cacheprovider"
+conda run -n Agent python -m pytest tests\test_agent_graph.py -q -p no:cacheprovider
 
 # 工具单元测试
-conda run -n Agent cmd /c "set PYTHONPATH=src&& python -m pytest tests\test_tools.py -q -p no:cacheprovider"
+conda run -n Agent python -m pytest tests\test_tools.py -q -p no:cacheprovider
 ```
+
+当前仓库已验证在 `Agent` conda 环境下可通过：
+
+- `conda run -n Agent python -m pytest tests -q -p no:cacheprovider`
+- `conda run -n Agent python -m travel_agent.agent.cli --help`
+- `conda run -n Agent python -m travel_agent.rag.cli --help`
 
 ### 代码质量
 
@@ -384,10 +398,10 @@ conda run -n Agent python -m compileall src tests
 
 ```powershell
 # 召回质量评测（18 个用例）
-conda run -n Agent cmd /c "set PYTHONPATH=src&& python -m pytest tests\test_recall_quality.py -q -p no:cacheprovider"
+conda run -n Agent python -m pytest tests\test_recall_quality.py -q -p no:cacheprovider
 
 # CLI 离线评测（含质量门槛）
-conda run -n Agent cmd /c "set PYTHONPATH=src&& python -m travel_agent.rag.cli eval --embedding-provider local --retrieval-mode hybrid --json"
+conda run -n Agent python -m travel_agent.rag.cli eval --embedding-provider local --retrieval-mode hybrid --json
 ```
 
 **RAG 质量门槛**：recall@k >= 0.95, MRR@k >= 0.90, keyword_hit_rate@k >= 0.90, metadata_filter_accuracy >= 1.00
@@ -396,7 +410,7 @@ conda run -n Agent cmd /c "set PYTHONPATH=src&& python -m travel_agent.rag.cli e
 
 ```powershell
 # Agent 离线评测（12 个用例）
-conda run -n Agent cmd /c "set PYTHONPATH=src&& python -m travel_agent.agent.cli eval --json --verbose"
+conda run -n Agent python -m travel_agent.agent.cli eval --json --verbose
 ```
 
 **Agent 评测指标**：Days Match Rate, Budget Present Rate, Risk Notices Rate, Evidence Source Coverage, Low Confidence Handling Rate, Empty Result Handling Rate, Validation Pass Rate

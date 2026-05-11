@@ -12,8 +12,9 @@ FROM python:3.11-slim AS builder
 
 WORKDIR /app
 
-# 安装构建依赖
-COPY pyproject.toml ./
+# Editable install needs the package source to be present during build.
+COPY pyproject.toml README.md ./
+COPY src ./src
 RUN python -m pip install --no-cache-dir --upgrade pip && \
     python -m pip install --no-cache-dir -e ".[keyword,reranker,local-embeddings,observability,dev]"
 
