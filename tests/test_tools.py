@@ -13,7 +13,6 @@ from travel_agent.agent.schemas import (
     AlternativePlan,
     BudgetEstimate,
     CrowdRiskAssessment,
-    POICrowdRisk,
     TravelRequest,
 )
 from travel_agent.rag.models import EvidenceBundle, RetrievalTrace, SearchResult

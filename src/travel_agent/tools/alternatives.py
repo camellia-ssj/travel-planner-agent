@@ -53,7 +53,11 @@ def suggest_alternatives(
     if not suggestions:
         suggestions.append(_FALLBACK)
 
-    weather_note = "；".join(weather_parts[:2]) if weather_parts else f"{destination}暂无特别天气风险提示"
+    weather_note = (
+        "；".join(weather_parts[:2])
+        if weather_parts
+        else f"{destination}暂无特别天气风险提示"
+    )
 
     return AlternativePlan(
         destination=destination,

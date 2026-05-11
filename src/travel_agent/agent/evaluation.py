@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Any
 
 from travel_agent.agent.graph import build_travel_agent_graph
-from travel_agent.agent.nodes import EvidenceService
 from travel_agent.agent.planner import RuleBasedTravelPlanner, TravelPlanner
 from travel_agent.agent.schemas import TravelPlan
 from travel_agent.rag.models import EvidenceBundle, RetrievalTrace, SearchResult
@@ -60,8 +59,12 @@ class AgentEvalMetrics:
         return {
             "total_cases": self.total_cases,
             "days_match_rate": self.days_match / self.total_cases if self.total_cases else 1.0,
-            "budget_present_rate": self.budget_present / self.total_cases if self.total_cases else 1.0,
-            "risk_notices_rate": self.risk_notices_present / self.total_cases if self.total_cases else 1.0,
+            "budget_present_rate": (
+                self.budget_present / self.total_cases if self.total_cases else 1.0
+            ),
+            "risk_notices_rate": (
+                self.risk_notices_present / self.total_cases if self.total_cases else 1.0
+            ),
             "evidence_source_coverage": (
                 self.evidence_source_coverage / self.total_cases if self.total_cases else 1.0
             ),
@@ -75,7 +78,9 @@ class AgentEvalMetrics:
                 if self.empty_result_total
                 else 1.0
             ),
-            "validation_pass_rate": self.validation_passed / self.total_cases if self.total_cases else 1.0,
+            "validation_pass_rate": (
+                self.validation_passed / self.total_cases if self.total_cases else 1.0
+            ),
             "avg_latency_ms": self.avg_latency_ms,
             "failures": self.failures,
         }
@@ -164,7 +169,6 @@ def evaluate_agent_plans(
         total_latency += latency
 
         plan: TravelPlan = state["plan"]
-        evidence: EvidenceBundle = state["evidence"]
         is_valid: bool = state.get("is_valid", False)
         errors: list[str] = state.get("validation_errors", [])
 
@@ -173,7 +177,8 @@ def evaluate_agent_plans(
             metrics.days_match += 1
         else:
             metrics.failures.append(
-                f"days_mismatch: query={case.query!r}, expected={case.expected_days}, actual={plan.days}"
+                f"days_mismatch: query={case.query!r}, "
+                f"expected={case.expected_days}, actual={plan.days}"
             )
 
         # --- Metric: budget present ---

@@ -17,7 +17,6 @@ from rich.panel import Panel
 from rich.table import Table
 
 from travel_agent.agent.evaluation import (
-    AgentEvalCase,
     AgentEvalMetrics,
     build_eval_report,
     evaluate_agent_plans,
@@ -141,7 +140,9 @@ def eval(
         ),
     ] = Path("tests/fixtures/agent_eval_cases.jsonl"),
     as_json: Annotated[bool, typer.Option("--json", help="Print machine-readable JSON.")] = False,
-    verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Show per-case failures.")] = False,
+    verbose: Annotated[
+        bool, typer.Option("--verbose", "-v", help="Show per-case failures.")
+    ] = False,
 ) -> None:
     """Run offline agent evaluation with deterministic rule-based planner.
 
@@ -440,8 +441,16 @@ def _print_eval_report(
         return "[red]CHECK[/red]"
 
     table.add_row("Days Match Rate", f"{m['days_match_rate']:.2%}", _status(m["days_match_rate"]))
-    table.add_row("Budget Present Rate", f"{m['budget_present_rate']:.2%}", _status(m["budget_present_rate"]))
-    table.add_row("Risk Notices Rate", f"{m['risk_notices_rate']:.2%}", _status(m["risk_notices_rate"]))
+    table.add_row(
+        "Budget Present Rate",
+        f"{m['budget_present_rate']:.2%}",
+        _status(m["budget_present_rate"]),
+    )
+    table.add_row(
+        "Risk Notices Rate",
+        f"{m['risk_notices_rate']:.2%}",
+        _status(m["risk_notices_rate"]),
+    )
     table.add_row(
         "Evidence Source Coverage",
         f"{m['evidence_source_coverage']:.2%}",
@@ -457,7 +466,11 @@ def _print_eval_report(
         f"{m['empty_result_handling_rate']:.2%}",
         _status(m["empty_result_handling_rate"]),
     )
-    table.add_row("Validation Pass Rate", f"{m['validation_pass_rate']:.2%}", _status(m["validation_pass_rate"]))
+    table.add_row(
+        "Validation Pass Rate",
+        f"{m['validation_pass_rate']:.2%}",
+        _status(m["validation_pass_rate"]),
+    )
     table.add_row("Avg Latency (ms)", f"{m['avg_latency_ms']:.2f}", "")
     console.print(table)
 
@@ -468,7 +481,9 @@ def _print_eval_report(
 
     if m.get("failures"):
         total_failures = len(m["failures"])
-        console.print(f"\n[yellow]{total_failures} failure(s) total. Use --verbose for details.[/yellow]")
+        console.print(
+            f"\n[yellow]{total_failures} failure(s) total. Use --verbose for details.[/yellow]"
+        )
         raise typer.Exit(code=1 if total_failures > 0 else 0)
 
 

@@ -58,10 +58,30 @@ def estimate_budget(
             notes.append(f"Evidence price hints ({avg_hint:.0f} CNY)低于基准, adjusted -15%")
 
     total_per_person_per_day = base
-    accommodation = total_per_person_per_day * _CATEGORY_WEIGHTS["accommodation"] * effective_people * effective_days
-    dining = total_per_person_per_day * _CATEGORY_WEIGHTS["dining"] * effective_people * effective_days
-    transport = total_per_person_per_day * _CATEGORY_WEIGHTS["transport"] * effective_people * effective_days
-    tickets = total_per_person_per_day * _CATEGORY_WEIGHTS["tickets"] * effective_people * effective_days
+    accommodation = (
+        total_per_person_per_day
+        * _CATEGORY_WEIGHTS["accommodation"]
+        * effective_people
+        * effective_days
+    )
+    dining = (
+        total_per_person_per_day
+        * _CATEGORY_WEIGHTS["dining"]
+        * effective_people
+        * effective_days
+    )
+    transport = (
+        total_per_person_per_day
+        * _CATEGORY_WEIGHTS["transport"]
+        * effective_people
+        * effective_days
+    )
+    tickets = (
+        total_per_person_per_day
+        * _CATEGORY_WEIGHTS["tickets"]
+        * effective_people
+        * effective_days
+    )
     total = accommodation + dining + transport + tickets
     daily_average = total / effective_days
 

@@ -9,7 +9,8 @@ import os
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any, Iterator
+from collections.abc import Iterator
+from typing import Any
 
 from travel_agent.agent.schemas import TravelPlan, TravelRequest
 from travel_agent.rag.models import EvidenceBundle
@@ -47,7 +48,9 @@ class AgentTraceContext:
             "final_plan_days": self.final_plan.days if self.final_plan else 0,
             "final_plan_has_budget": bool(self.final_plan and self.final_plan.budget_items),
             "final_plan_has_risks": bool(self.final_plan and self.final_plan.risk_notices),
-            "final_plan_evidence_sources": self.final_plan.evidence_sources if self.final_plan else [],
+            "final_plan_evidence_sources": (
+                self.final_plan.evidence_sources if self.final_plan else []
+            ),
             "thread_id": self.thread_id,
         }
 
@@ -128,12 +131,13 @@ class AgentTracer:
             return self._langsmith_ok
         self._langsmith_ok = False
         try:
-            if os.getenv("LANGCHAIN_TRACING_V2", "").lower() in ("true", "1"):
-                if os.getenv("LANGCHAIN_API_KEY") or os.getenv("LANGCHAIN_ENDPOINT"):
-                    import langsmith  # type: ignore[import-untyped]
+            if os.getenv("LANGCHAIN_TRACING_V2", "").lower() in ("true", "1") and (
+                os.getenv("LANGCHAIN_API_KEY") or os.getenv("LANGCHAIN_ENDPOINT")
+            ):
+                import langsmith  # type: ignore[import-untyped]
 
-                    self._langsmith_client = langsmith.Client()
-                    self._langsmith_ok = True
+                self._langsmith_client = langsmith.Client()
+                self._langsmith_ok = True
         except Exception:
             pass
         return self._langsmith_ok

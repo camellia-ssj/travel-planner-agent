@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import tempfile
+from pathlib import Path
+
 from typer.testing import CliRunner
 
 from travel_agent.agent import (
@@ -11,7 +14,6 @@ from travel_agent.agent import (
     TravelPlan,
     TravelRequest,
     build_travel_agent_graph,
-    build_travel_agent_resume_graph,
 )
 from travel_agent.agent.cli import app, resume_plan, run_plan
 from travel_agent.agent.schemas import BudgetItem, DayPlan, RiskNotice
@@ -341,8 +343,6 @@ def test_budget_tool_overrides_rule_based_planner() -> None:
 
 def test_resume_graph_runs_tool_node() -> None:
     rag_service = MockRagService()
-    from pathlib import Path
-    import tempfile
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         checkpoint_path = Path(tmp_dir) / "test.sqlite"
