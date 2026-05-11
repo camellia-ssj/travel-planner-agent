@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from travel_agent.agent.nodes import (
     _detect_weekend_holiday,
     _parse_people_count,
@@ -131,7 +130,10 @@ class TestBudgetTool:
             "budget": "门票约300元/人，餐饮每天约200元。",
         })
         result = estimate_budget(1, 1, "standard", ev)
-        assert any("Adjusted" in note or "adjusted" in note or "Evidence" in note for note in result.notes)
+        assert any(
+            "Adjusted" in note or "adjusted" in note or "Evidence" in note
+            for note in result.notes
+        )
 
     def test_zero_days_clamps_to_minimum(self) -> None:
         ev = _empty_evidence()
