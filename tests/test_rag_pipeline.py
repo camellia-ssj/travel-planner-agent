@@ -1,9 +1,9 @@
 import json
 import os
-import shutil
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from uuid import uuid4
 
 from langchain_core.documents import Document
 from typer.testing import CliRunner
@@ -45,10 +45,8 @@ def _test_temp_dir() -> Path:
 
 
 def _fresh_case_dir(name: str) -> Path:
-    root = _test_temp_dir() / name
-    if root.exists():
-        shutil.rmtree(root, ignore_errors=True)
-    root.mkdir(parents=True, exist_ok=True)
+    root = _test_temp_dir() / f"{name}_{uuid4().hex}"
+    root.mkdir(parents=True, exist_ok=False)
     return root
 
 
@@ -319,6 +317,94 @@ class RagPipelineTest(unittest.TestCase):
         self.assertTrue(autumn_results)
         self.assertTrue(all(result.metadata["destination"] == "Kyoto" for result in autumn_results))
 
+    def test_search_with_query_rewrites_disables_nested_rewrite_and_preserves_filters(self) -> None:
+        from travel_agent.rag.models import EvidenceBundle, QueryRewriteMode, RetrievalTrace
+        from travel_agent.rag.query_rewrite import search_with_query_rewrites
+
+        class FakeRag:
+            def __init__(self) -> None:
+                self.calls: list[dict[str, object]] = []
+
+            def retrieve_evidence(
+                self,
+                query: str,
+                top_k: int | None = None,
+                destination: str | None = None,
+                section: str | None = None,
+                travel_type: str | None = None,
+                season: str | None = None,
+                retrieval_mode: str | None = None,
+                query_rewrite_mode: QueryRewriteMode | str | None = None,
+            ) -> EvidenceBundle:
+                self.calls.append(
+                    {
+                        "query": query,
+                        "travel_type": travel_type,
+                        "season": season,
+                        "query_rewrite_mode": query_rewrite_mode,
+                    }
+                )
+                result = SearchResult(
+                    content=f"{query} shared result",
+                    source="shared.md",
+                    destination=destination or "Kyoto",
+                    score=1.0,
+                    metadata={"chunk_id": "shared", "section": section or "overview"},
+                )
+                if query == "budget query":
+                    result = SearchResult(
+                        content="budget unique result",
+                        source="budget.md",
+                        destination=destination or "Kyoto",
+                        score=1.0,
+                        metadata={"chunk_id": "budget", "section": section or "budget"},
+                    )
+                return EvidenceBundle(
+                    question=query,
+                    results=[result],
+                    trace=RetrievalTrace.create(**{
+                        "retrieval_mode": "hybrid",
+                        "requested_top_k": top_k or 1,
+                        "candidate_k": top_k or 1,
+                        "returned_results": 1,
+                        "empty_result": False,
+                        "destination": destination or "Kyoto",
+                        "section": section or "",
+                        "travel_type": travel_type or "",
+                        "season": season or "",
+                        "embedding_provider": "local",
+                        "reranker": "keyword",
+                        "collection_version": "test",
+                        "metadata_filters": {},
+                        "vector_hits": [],
+                        "keyword_hits": [],
+                        "fused_hits": [],
+                        "reranked_hits": [],
+                    }),
+                    query_analysis={},
+                    confidence=1.0,
+                )
+
+        rag = FakeRag()
+
+        results = search_with_query_rewrites(
+            rag,  # type: ignore[arg-type]
+            original_query="Kyoto family trip",
+            rewritten_queries=["family query", "budget query", "family query"],
+            top_k=2,
+            destination="Kyoto",
+            section="budget",
+            travel_type="family_free_independent",
+            season="autumn",
+        )
+
+        assert len(rag.calls) == 3
+        assert all(call["query_rewrite_mode"] == QueryRewriteMode.OFF for call in rag.calls)
+        assert all(call["travel_type"] == "family_free_independent" for call in rag.calls)
+        assert all(call["season"] == "autumn" for call in rag.calls)
+        assert results[0].metadata["chunk_id"] == "shared"
+        assert results[0].score > results[1].score
+
     def test_reingest_replaces_existing_chunks_for_scanned_sources(self) -> None:
         root = _fresh_case_dir("reingest_replaces_sources")
         docs = root / "docs"
@@ -350,6 +436,32 @@ class RagPipelineTest(unittest.TestCase):
         self.assertEqual(rag.stats()["chunks"], second_report.indexed_chunks)
         self.assertIn("新内容", joined)
         self.assertNotIn("旧内容", joined)
+
+    def test_reingest_removes_deleted_sources_from_index(self) -> None:
+        root = _fresh_case_dir("reingest_removes_deleted_sources")
+        docs = root / "docs"
+        docs.mkdir()
+        source = docs / "hangzhou.md"
+        source.write_text(
+            "---\ndestination: Hangzhou\n---\n"
+            "# Hangzhou\nWest Lake deleted-marker guidance.\n",
+            encoding="utf-8",
+        )
+
+        rag = TravelRag.create(
+            persist_dir=root / "chroma",
+            embedding_provider=EmbeddingProviderName.LOCAL,
+            top_k=5,
+        )
+        rag.ingest(docs)
+        source.unlink()
+
+        report = rag.ingest(docs)
+        results = rag.search("deleted-marker", destination="Hangzhou", top_k=5)
+
+        self.assertGreater(report.deleted_chunks, 0)
+        self.assertEqual(rag.stats()["chunks"], 0)
+        self.assertEqual(results, [])
 
     def test_incremental_ingest_skips_unchanged_documents(self) -> None:
         root = _fresh_case_dir("incremental_ingest")
@@ -521,6 +633,30 @@ class RagPipelineTest(unittest.TestCase):
         self.assertFalse(evidence.results)
         self.assertTrue(evidence.trace.empty_result)
         self.assertEqual(evidence.trace.empty_result_reason, "empty_collection")
+
+    def test_query_tolerates_empty_manifest_file(self) -> None:
+        root = _fresh_case_dir("empty_manifest_tolerance")
+        docs = root / "docs"
+        docs.mkdir()
+        (docs / "hangzhou.md").write_text(
+            "---\ndestination: Hangzhou\n---\n# Hangzhou\nWest Lake family travel notes.",
+            encoding="utf-8",
+        )
+
+        service = RagService(
+            RagConfig(
+                persist_dir=root / "chroma",
+                embedding_provider=EmbeddingProviderName.LOCAL,
+                default_top_k=1,
+            )
+        )
+
+        report = service.ingest_markdown(docs)
+        Path(report.manifest_path).write_text("", encoding="utf-8")
+
+        response = service.query("West Lake", top_k=1)
+
+        self.assertTrue(response.results)
 
     def test_cross_encoder_reranker_orders_by_model_scores(self) -> None:
         class FakeCrossEncoder:

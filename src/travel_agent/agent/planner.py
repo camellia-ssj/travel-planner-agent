@@ -20,6 +20,7 @@ from travel_agent.agent.schemas import (
     TravelPlan,
     TravelRequest,
 )
+from travel_agent.memory.models import UserProfile
 from travel_agent.rag.models import EvidenceBundle, SearchResult
 
 DEFAULT_AGENT_MODEL = "qwen3-max"
@@ -34,6 +35,7 @@ class TravelPlanner(Protocol):
         evidence: EvidenceBundle,
         user_feedback: list[str] | None = None,
         tool_results: dict[str, object] | None = None,
+        user_profile: UserProfile | None = None,
     ) -> TravelPlan:
         """Generate a structured travel plan."""
 
@@ -48,6 +50,7 @@ class RuleBasedTravelPlanner:
         evidence: EvidenceBundle,
         user_feedback: list[str] | None = None,
         tool_results: dict[str, object] | None = None,
+        user_profile: UserProfile | None = None,
     ) -> TravelPlan:
         destination = _destination_from(request, evidence)
         results = evidence.results
@@ -71,7 +74,7 @@ class RuleBasedTravelPlanner:
             request=request,
             destination=destination,
             days=request.days,
-            summary=_summary(destination, request, feedback),
+            summary=_summary(destination, request, feedback, user_profile),
             day_plans=day_plans,
             budget_items=budget_items,
             risk_notices=risk_notices,
@@ -94,6 +97,7 @@ class LangChainStructuredPlanner:
         evidence: EvidenceBundle,
         user_feedback: list[str] | None = None,
         tool_results: dict[str, object] | None = None,
+        user_profile: UserProfile | None = None,
     ) -> TravelPlan:
         try:
             structured_model = self.chat_model.with_structured_output(TravelPlan)
@@ -106,6 +110,7 @@ class LangChainStructuredPlanner:
                             evidence,
                             user_feedback=user_feedback or [],
                             tool_results=tool_results,
+                            user_profile=user_profile,
                         )
                     ),
                 ]
@@ -116,9 +121,11 @@ class LangChainStructuredPlanner:
         except Exception:
             if self.fallback is None:
                 raise
-            return self.fallback.plan(
+            plan = self.fallback.plan(
                 request, evidence, user_feedback=user_feedback, tool_results=tool_results,
             )
+            plan.fallback_used = True
+            return plan
 
 
 @dataclass(frozen=True)
@@ -238,12 +245,19 @@ def _destination_from(request: TravelRequest, evidence: EvidenceBundle) -> str:
     return ""
 
 
-def _summary(destination: str, request: TravelRequest, user_feedback: list[str]) -> str:
+def _summary(
+    destination: str,
+    request: TravelRequest,
+    user_feedback: list[str],
+    user_profile: UserProfile | None = None,
+) -> str:
     audience = ", ".join(request.audience)
     summary = (
         f"{destination} {request.days}-day rule-based plan for {audience} "
         f"with {request.budget_preference} budget preference."
     )
+    if user_profile is not None and user_profile.total_trips > 0:
+        summary += f" (returning user, {user_profile.total_trips} previous trips)"
     if user_feedback:
         summary += f" Updated with feedback: {user_feedback[-1]}"
     return summary
@@ -514,7 +528,7 @@ def _alternatives_to_strings(plan: AlternativePlan) -> list[str]:
     result: list[str] = []
     for alt in plan.alternatives:
         result.append(f"{alt.original_scenario} -> {alt.suggested_alternative} ({alt.reason})")
-    return result or [plan.weather_note] if plan.weather_note else ["暂无备选方案"]
+    return result or ([plan.weather_note] if plan.weather_note else ["暂无备选方案"])
 
 
 def _apply_tool_overrides(

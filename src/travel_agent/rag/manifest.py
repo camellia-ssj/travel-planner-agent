@@ -59,7 +59,9 @@ class IngestManifest:
             "collection_version": self.collection_version,
             "documents": [document.__dict__ for document in self.documents.values()],
         }
-        self.path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        temp_path = self.path.with_suffix(f"{self.path.suffix}.tmp")
+        temp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        temp_path.replace(self.path)
 
 
 def manifest_path(settings: RagSettings) -> Path:
@@ -71,7 +73,20 @@ def load_manifest(settings: RagSettings) -> IngestManifest:
     if not path.exists():
         return IngestManifest(path)
 
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    try:
+        raw_payload = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return IngestManifest(path)
+    if not raw_payload:
+        return IngestManifest(path)
+
+    try:
+        payload = json.loads(raw_payload)
+    except json.JSONDecodeError:
+        return IngestManifest(path)
+    if not isinstance(payload, dict):
+        return IngestManifest(path)
+
     documents: dict[str, ManifestDocument] = {}
     for item in payload.get("documents", []):
         if not isinstance(item, dict):

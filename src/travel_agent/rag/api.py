@@ -20,6 +20,7 @@ from travel_agent.rag.models import (
     EvidenceBundle,
     IngestReport,
     QueryResponse,
+    QueryRewriteMode,
     SearchResult,
 )
 from travel_agent.rag.service import RagRetriever, RagService
@@ -45,6 +46,7 @@ class TravelRag:
         reranker: str | RerankerName | None = None,
         reranker_model: str | None = None,
         reranker_fallback: bool | None = None,
+        query_rewrite: str | QueryRewriteMode | None = None,
     ) -> TravelRag:
         """Create a reusable RAG client."""
 
@@ -61,6 +63,7 @@ class TravelRag:
                 reranker=reranker,
                 reranker_model=reranker_model,
                 reranker_fallback=reranker_fallback,
+                query_rewrite=query_rewrite,
             )
         )
 
@@ -199,6 +202,7 @@ def create_rag_service(
     reranker: str | RerankerName | None = None,
     reranker_model: str | None = None,
     reranker_fallback: bool | None = None,
+    query_rewrite: str | QueryRewriteMode | None = None,
 ) -> RagService:
     """Create a configured `RagService` for external callers."""
 
@@ -226,6 +230,8 @@ def create_rag_service(
         updates["reranker_model"] = reranker_model
     if reranker_fallback is not None:
         updates["reranker_fallback"] = reranker_fallback
+    if query_rewrite is not None:
+        updates["query_rewrite"] = _query_rewrite_mode(query_rewrite)
 
     if updates:
         settings = settings.model_copy(update=updates)
@@ -449,3 +455,9 @@ def _reranker(value: str | RerankerName) -> RerankerName:
     if isinstance(value, RerankerName):
         return value
     return RerankerName(value)
+
+
+def _query_rewrite_mode(value: str | QueryRewriteMode) -> QueryRewriteMode:
+    if isinstance(value, QueryRewriteMode):
+        return value
+    return QueryRewriteMode(value)

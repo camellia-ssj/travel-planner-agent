@@ -8,9 +8,11 @@ from travel_agent.agent.schemas import (
     AlternativePlan,
     BudgetEstimate,
     CrowdRiskAssessment,
+    ReflectionReport,
     TravelPlan,
     TravelRequest,
 )
+from travel_agent.memory.models import UserProfile
 from travel_agent.rag.models import EvidenceBundle
 
 
@@ -23,6 +25,9 @@ class TravelAgentState(TypedDict, total=False):
     days_override: int
     latest_user_feedback: str
     user_feedback: list[str]
+    user_id: str
+    thread_id: str
+    user_profile: UserProfile
     request: TravelRequest
     evidence: EvidenceBundle
     tool_budget: BudgetEstimate
@@ -31,3 +36,6 @@ class TravelAgentState(TypedDict, total=False):
     plan: TravelPlan
     is_valid: bool
     validation_errors: list[str]
+    reflection_report: ReflectionReport
+    reflection_issues: list[str]
+    reflection_retry_count: int

@@ -2,11 +2,15 @@
 
 from travel_agent.agent.graph import build_travel_agent_graph, build_travel_agent_resume_graph
 from travel_agent.agent.nodes import (
+    MemoryService,
     apply_feedback_node,
     generate_plan_node,
     generate_plan_with_planner_node,
+    load_user_profile_node,
     parse_user_request_node,
+    reflect_node,
     retrieve_evidence_node,
+    save_trip_memory_node,
     tool_node,
     validate_plan_node,
 )
@@ -17,6 +21,12 @@ from travel_agent.agent.planner import (
     TravelPlanner,
     build_default_planner,
 )
+from travel_agent.agent.reflection import (
+    ReflectionService,
+    ReflectionSettings,
+    build_reflection_service,
+    deterministic_reflect,
+)
 from travel_agent.agent.schemas import (
     AlternativePlan,
     AlternativeSuggestion,
@@ -24,7 +34,9 @@ from travel_agent.agent.schemas import (
     BudgetItem,
     CrowdRiskAssessment,
     DayPlan,
+    HallucinationFlag,
     POICrowdRisk,
+    ReflectionReport,
     RiskNotice,
     TravelPlan,
     TravelRequest,
@@ -38,7 +50,12 @@ __all__ = [
     "BudgetItem",
     "CrowdRiskAssessment",
     "DayPlan",
+    "HallucinationFlag",
+    "MemoryService",
     "POICrowdRisk",
+    "ReflectionReport",
+    "ReflectionService",
+    "ReflectionSettings",
     "RiskNotice",
     "TravelAgentState",
     "TravelPlan",
@@ -48,13 +65,18 @@ __all__ = [
     "RuleBasedTravelPlanner",
     "TravelPlanner",
     "apply_feedback_node",
+    "build_default_planner",
+    "build_reflection_service",
     "build_travel_agent_graph",
     "build_travel_agent_resume_graph",
-    "build_default_planner",
+    "deterministic_reflect",
     "generate_plan_node",
     "generate_plan_with_planner_node",
+    "load_user_profile_node",
     "parse_user_request_node",
+    "reflect_node",
     "retrieve_evidence_node",
+    "save_trip_memory_node",
     "tool_node",
     "validate_plan_node",
 ]

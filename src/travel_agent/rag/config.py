@@ -8,6 +8,8 @@ from pathlib import Path
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from travel_agent.rag.models import QueryRewriteMode
+
 
 class EmbeddingProviderName(StrEnum):
     """Supported embedding backend modes."""
@@ -80,6 +82,9 @@ class RagSettings(BaseSettings):
     reranker_batch_size: int = Field(default=16, gt=0)
     reranker_device: str | None = None
     reranker_fallback: bool = True
+    query_rewrite: QueryRewriteMode = QueryRewriteMode.OFF
+    query_rewrite_model: str = "qwen3-max"
+    query_rewrite_provider: str = "qwen"
 
     @field_validator("keyword_user_dict", "reranker_device", mode="before")
     @classmethod

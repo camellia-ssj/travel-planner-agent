@@ -12,7 +12,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
-from travel_agent.agent.schemas import TravelPlan, TravelRequest
+from travel_agent.agent.schemas import ReflectionReport, TravelPlan, TravelRequest
 from travel_agent.rag.models import EvidenceBundle
 
 
@@ -30,6 +30,10 @@ class AgentTraceContext:
     latency_ms: float = 0.0
     validation_passed: bool = False
     validation_errors: list[str] = field(default_factory=list)
+    reflection_passed: bool | None = None
+    reflection_evidence_coverage: float = 0.0
+    reflection_confidence: float = 0.0
+    reflection_flag_count: int = 0
 
     thread_id: str = ""
 
@@ -44,6 +48,10 @@ class AgentTraceContext:
             "latency_ms": self.latency_ms,
             "validation_passed": self.validation_passed,
             "validation_errors": self.validation_errors,
+            "reflection_passed": self.reflection_passed,
+            "reflection_evidence_coverage": self.reflection_evidence_coverage,
+            "reflection_confidence": self.reflection_confidence,
+            "reflection_flag_count": self.reflection_flag_count,
             "final_plan_summary": self.final_plan.summary if self.final_plan else "",
             "final_plan_days": self.final_plan.days if self.final_plan else 0,
             "final_plan_has_budget": bool(self.final_plan and self.final_plan.budget_items),
@@ -113,6 +121,18 @@ class AgentTracer:
     def record_validation(self, ctx: AgentTraceContext, passed: bool, errors: list[str]) -> None:
         ctx.validation_passed = passed
         ctx.validation_errors = errors
+
+    def record_reflection(self, ctx: AgentTraceContext, report: ReflectionReport) -> None:
+        ctx.reflection_passed = report.passed
+        ctx.reflection_evidence_coverage = report.evidence_coverage
+        ctx.reflection_confidence = report.confidence_score
+        ctx.reflection_flag_count = len(report.hallucination_flags)
+        self._maybe_langsmith_metadata("reflection", {
+            "passed": report.passed,
+            "evidence_coverage": report.evidence_coverage,
+            "confidence": report.confidence_score,
+            "hallucination_flags": len(report.hallucination_flags),
+        })
 
     def finish_run(self, ctx: AgentTraceContext, plan: TravelPlan, thread_id: str = "") -> None:
         ctx.final_plan = plan

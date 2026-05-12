@@ -11,6 +11,12 @@ from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from langchain_core.vectorstores import VectorStore
 
+from travel_agent.knowledge import (
+    DESTINATION_ALIASES,
+    DESTINATION_DISPLAY_NAMES,
+    KEYWORD_ANSWER_TOKENS,
+    SECTION_QUERY_ALIASES,
+)
 from travel_agent.rag.config import RagSettings, RetrievalMode
 from travel_agent.rag.embeddings import build_embeddings
 from travel_agent.rag.keyword import BM25Index
@@ -22,8 +28,14 @@ from travel_agent.rag.models import (
     EvidenceBundle,
     IngestReport,
     QueryResponse,
+    QueryRewriteMode,
     RetrievalTrace,
     SearchResult,
+)
+from travel_agent.rag.query_rewrite import (
+    LLMQueryRewriter,
+    build_query_rewriter,
+    search_with_query_rewrites,
 )
 from travel_agent.rag.rerankers import Reranker, build_reranker
 from travel_agent.rag.splitters import build_text_splitter
@@ -38,79 +50,6 @@ from travel_agent.rag.vector_store import (
     vector_store_metadatas,
 )
 
-DESTINATION_ALIASES = {
-    "杭州": "Hangzhou",
-    "hangzhou": "Hangzhou",
-    "东京": "Tokyo",
-    "東京": "Tokyo",
-    "tokyo": "Tokyo",
-    "苏州": "Suzhou",
-    "suzhou": "Suzhou",
-    "大理": "Dali",
-    "dali": "Dali",
-    "长沙": "Changsha",
-    "changsha": "Changsha",
-    "巴黎": "Paris",
-    "paris": "Paris",
-    "成都": "Chengdu",
-    "chengdu": "Chengdu",
-    "北京": "Beijing",
-    "beijing": "Beijing",
-}
-
-SECTION_QUERY_ALIASES = {
-    "traffic": (
-        "交通",
-        "地铁",
-        "公交",
-        "机场",
-        "高铁",
-        "火车",
-        "换乘",
-        "停车",
-        "打车",
-        "怎么去",
-        "如何去",
-        "到达",
-        "transit",
-        "transport",
-        "subway",
-        "metro",
-        "airport",
-        "rail",
-    ),
-    "budget": ("预算", "费用", "花费", "价格", "门票", "多少钱", "budget", "cost", "price"),
-    "lodging": ("住宿", "酒店", "住哪", "住在哪里", "民宿", "hotel", "lodging", "stay"),
-    "dining": ("餐饮", "吃饭", "美食", "餐厅", "小吃", "吃什么", "dining", "food", "restaurant"),
-    "crowd_risk": ("拥挤", "排队", "人多", "人流", "高峰", "crowd", "queue", "busy"),
-    "weather_risk": (
-        "天气",
-        "下雨",
-        "雨天",
-        "高温",
-        "寒冷",
-        "台风",
-        "weather",
-        "rain",
-        "hot",
-        "cold",
-    ),
-    "itinerary": ("玩法", "怎么玩", "路线", "行程", "安排", "itinerary", "route", "plan"),
-    "audience": ("适合人群", "亲子", "老人", "带孩子", "audience"),
-    "alternatives": ("备选", "替代", "改去", "下雨去哪", "alternatives", "backup"),
-}
-
-DESTINATION_DISPLAY_NAMES = {
-    "Beijing": "北京",
-    "Changsha": "长沙",
-    "Chengdu": "成都",
-    "Dali": "大理",
-    "Hangzhou": "杭州",
-    "Paris": "巴黎",
-    "Suzhou": "苏州",
-    "Tokyo": "东京",
-}
-
 
 class RagService:
     """Coordinates LangChain loading, splitting, embedding, Chroma and retrieval."""
@@ -121,6 +60,7 @@ class RagService:
         embeddings: Embeddings | None = None,
         vector_store: VectorStore | None = None,
         reranker: Reranker | None = None,
+        query_rewriter: LLMQueryRewriter | None = None,
     ) -> None:
         self.settings = settings or RagSettings()
         self.settings.ensure_parent_dirs()
@@ -128,6 +68,7 @@ class RagService:
         self.vector_store = vector_store or build_vector_store(self.settings, self.embeddings)
         self.text_splitter = build_text_splitter(self.settings)
         self.reranker = reranker or build_reranker(self.settings)
+        self.query_rewriter = query_rewriter or self._build_rewriter()
         self._bm25_index: BM25Index | None = None
         self._bm25_collection_count = -1
 
@@ -140,6 +81,16 @@ class RagService:
         files = discover_document_files(path)
         documents = load_documents(path, destination=destination)
         manifest = load_manifest(self.settings)
+        current_sources = {
+            str(document.metadata.get("source", ""))
+            for document in documents
+            if str(document.metadata.get("source", ""))
+        }
+        stale_documents = [
+            document
+            for source, document in manifest.documents.items()
+            if source not in current_sources
+        ]
         documents_to_index = [
             document
             for document in documents
@@ -152,6 +103,17 @@ class RagService:
         skipped_unchanged = len(documents) - len(documents_to_index)
 
         deleted_chunks = delete_documents_by_source(
+            self.vector_store,
+            sorted(document.source for document in stale_documents),
+        )
+        deleted_chunks += delete_documents_by_document_id(
+            self.vector_store,
+            sorted(document.document_id for document in stale_documents),
+        )
+        for document in stale_documents:
+            manifest.remove(document.source)
+
+        deleted_chunks += delete_documents_by_source(
             self.vector_store,
             sorted({str(document.metadata.get("source", "")) for document in documents_to_index}),
         )
@@ -203,6 +165,7 @@ class RagService:
         travel_type: str | None = None,
         season: str | None = None,
         retrieval_mode: str | RetrievalMode | None = None,
+        query_rewrite_mode: QueryRewriteMode | str | None = None,
     ) -> list[SearchResult]:
         return self.retrieve_evidence(
             query,
@@ -212,6 +175,7 @@ class RagService:
             travel_type=travel_type,
             season=season,
             retrieval_mode=retrieval_mode,
+            query_rewrite_mode=query_rewrite_mode,
         ).results
 
     def retrieve_evidence(
@@ -223,6 +187,7 @@ class RagService:
         travel_type: str | None = None,
         season: str | None = None,
         retrieval_mode: str | RetrievalMode | None = None,
+        query_rewrite_mode: QueryRewriteMode | str | None = None,
     ) -> EvidenceBundle:
         started_at = perf_counter()
         k = top_k or self.settings.default_top_k
@@ -237,9 +202,38 @@ class RagService:
             "season": season,
         }
         metadata_filters = _metadata_filters(destination, explicit_section, travel_type, season)
+
+        # ── Query rewrite ──────────────────────────────────────────────
+        rewrite_mode = _query_rewrite_mode(
+            query_rewrite_mode or self.settings.query_rewrite
+        )
+        rewritten_queries: list[str] | None = None
+        if rewrite_mode is not QueryRewriteMode.OFF:
+            rewrite_result = self.query_rewriter.rewrite(query, rewrite_mode)
+            rewritten_queries = rewrite_result.search_queries
+            effective_query = rewrite_result.rewritten_query
+        else:
+            effective_query = query
+
+        if (
+            rewrite_mode is QueryRewriteMode.MULTI_QUERY
+            and rewritten_queries
+            and len(rewritten_queries) > 1
+        ):
+            return self._retrieve_with_multi_query_fusion(
+                original_query=query,
+                rewritten_queries=rewritten_queries,
+                k=k,
+                destination=destination,
+                section=section,
+                travel_type=travel_type,
+                season=season,
+                started_at=started_at,
+            )
+
         candidate_k = self._candidate_k(k, mode is not RetrievalMode.VECTOR)
         retrieval = self._retrieve_with_mode(
-            query=query,
+            query=effective_query,
             top_k=candidate_k,
             metadata_filters=metadata_filters,
             mode=mode,
@@ -400,6 +394,89 @@ class RagService:
         reset_chroma(self.settings)
         self.vector_store = build_vector_store(self.settings, self.embeddings)
         self._invalidate_keyword_cache()
+
+    def _retrieve_with_multi_query_fusion(
+        self,
+        original_query: str,
+        rewritten_queries: list[str],
+        k: int,
+        destination: str | None,
+        section: str | None,
+        travel_type: str | None,
+        season: str | None,
+        started_at: float,
+    ) -> EvidenceBundle:
+        """Fuse retrieval results from multiple rewritten queries via RRF."""
+        fused = search_with_query_rewrites(
+            self,
+            original_query,
+            rewritten_queries,
+            top_k=k,
+            destination=destination,
+            section=section,
+            travel_type=travel_type,
+            season=season,
+        )
+        rerank_started_at = perf_counter()
+        results = [
+            r for r in self.reranker.rerank(original_query, fused)
+            if r.score >= self.settings.min_score
+        ][:k]
+        rerank_latency_ms = (perf_counter() - rerank_started_at) * 1000
+        average_score = (
+            sum(r.score for r in results) / len(results) if results else 0.0
+        )
+        manifest = load_manifest(self.settings)
+        trace = RetrievalTrace.create(
+            retrieval_mode=f"multi_query_rewrite_{self.settings.retrieval_mode.value}",
+            requested_top_k=k,
+            candidate_k=len(rewritten_queries) * k * 2,
+            returned_results=len(results),
+            empty_result=not results,
+            destination=destination or "",
+            section=section or "",
+            travel_type=travel_type or "",
+            season=season or "",
+            embedding_provider=self.settings.embedding_provider.value,
+            reranker=getattr(self.reranker, "name", self.settings.reranker.value),
+            collection_version=manifest.collection_version,
+            metadata_filters={
+                "rewritten_queries": rewritten_queries,
+                "destination": destination or "",
+                "section": section or "",
+            },
+            vector_hits=_trace_hits(results),
+            keyword_hits=[],
+            fused_hits=_trace_hits(fused),
+            reranked_hits=_trace_hits(results),
+            average_score=average_score,
+            rerank_latency_ms=rerank_latency_ms,
+            total_latency_ms=(perf_counter() - started_at) * 1000,
+        )
+        return EvidenceBundle(
+            question=original_query,
+            results=results,
+            trace=trace,
+            query_analysis={
+                "destination": destination or "",
+                "section": section or "",
+                "travel_type": travel_type or "",
+                "season": season or "",
+                "rewritten_queries": rewritten_queries,
+            },
+            confidence=min(max(average_score, 0.0), 1.0),
+        )
+
+    def _build_rewriter(self) -> LLMQueryRewriter:
+        """Build a query rewriter from the current settings.
+
+        The rewriter's model is None when no LLM API key is configured,
+        making all rewrites a transparent pass-through.
+        """
+        return build_query_rewriter(
+            llm_provider=self.settings.query_rewrite_provider,
+            model_name=self.settings.query_rewrite_model,
+        )
 
     def _split_documents(self, documents: list[Document]) -> list[Document]:
         section_documents = split_documents_by_markdown_section(documents)
@@ -761,6 +838,10 @@ def _retrieval_mode(value: str | RetrievalMode) -> RetrievalMode:
     return value if isinstance(value, RetrievalMode) else RetrievalMode(value)
 
 
+def _query_rewrite_mode(value: str | QueryRewriteMode) -> QueryRewriteMode:
+    return value if isinstance(value, QueryRewriteMode) else QueryRewriteMode(value)
+
+
 def _answer_bullet_label(destination: str, section_title: str) -> str:
     display_destination = DESTINATION_DISPLAY_NAMES.get(destination, destination)
     parts = [part for part in (display_destination, section_title) if part]
@@ -884,7 +965,7 @@ def _chunks_by_document(chunks: list[Document]) -> dict[str, int]:
 def _keyword_tokens(text: str) -> set[str]:
     normalized = text.lower()
     tokens = {char for char in normalized if "\u4e00" <= char <= "\u9fff"}
-    for keyword in ("周末", "拥挤", "亲子", "酒店", "灵隐寺", "东京", "杭州", "迪士尼"):
+    for keyword in KEYWORD_ANSWER_TOKENS:
         if keyword.lower() in normalized:
             tokens.add(keyword.lower())
     return tokens

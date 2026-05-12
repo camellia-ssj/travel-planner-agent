@@ -1,8 +1,9 @@
-"""Prompt helpers for structured travel planning."""
+"""Prompt helpers for structured travel planning and reflection."""
 
 from __future__ import annotations
 
-from travel_agent.agent.schemas import TravelRequest
+from travel_agent.agent.schemas import TravelPlan, TravelRequest
+from travel_agent.memory.models import UserProfile
 from travel_agent.rag.models import EvidenceBundle, SearchResult
 
 PLANNER_SYSTEM_PROMPT = (
@@ -12,14 +13,28 @@ PLANNER_SYSTEM_PROMPT = (
     "include fallback alternatives."
 )
 
+REFLECTION_SYSTEM_PROMPT = (
+    "You are a meticulous fact-checker reviewing a travel plan. Your task is to identify every "
+    "claim in the plan that is NOT supported by the provided RAG evidence. Cross-check each "
+    "activity, budget item, risk notice, and alternative against the evidence. Flag any invented "
+    "POI names, fabricated prices, unsupported crowd claims, or activities that contradict the "
+    "evidence. Be thorough — a false negative (missing a hallucination) is worse than a false "
+    "positive (flagging something that is actually supported)."
+)
+
 
 def build_planner_prompt(
     request: TravelRequest,
     evidence: EvidenceBundle,
     user_feedback: list[str] | None = None,
     tool_results: dict[str, object] | None = None,
+    user_profile: UserProfile | None = None,
 ) -> str:
-    """Build the user prompt for structured travel planning."""
+    """Build the user prompt for structured travel planning.
+
+    When *user_profile* is provided with trip history, it is included as
+    additional context so the planner can personalize recommendations.
+    """
 
     feedback = user_feedback or []
     evidence_text = "\n\n".join(_format_result(index, result) for index, result in enumerate(
@@ -37,6 +52,12 @@ def build_planner_prompt(
         f"Budget preference: {request.budget_preference}\n"
         f"User follow-up feedback: {feedback or 'none'}\n"
         f"Required evidence_sources: {sources}\n\n"
+    )
+    if user_profile is not None and user_profile.total_trips > 0:
+        profile_text = user_profile.to_context_text()
+        if profile_text:
+            prompt += f"{profile_text}\n\n"
+    prompt += (
         "RAG evidence:\n"
         f"{evidence_text or 'No evidence retrieved.'}\n\n"
     )
@@ -87,3 +108,76 @@ def _format_tool_results(tool_results: dict[str, object] | None) -> str:
     if alt is not None:
         sections.append(f"Alternatives: {json.dumps(alt.model_dump(), ensure_ascii=False)}")
     return "\n".join(sections)
+
+
+def build_reflection_prompt(
+    plan: TravelPlan,
+    evidence: EvidenceBundle,
+    tool_results: dict[str, object] | None = None,
+) -> str:
+    """Build the user prompt for plan reflection / factuality review.
+
+    Includes the full plan text and all RAG evidence so the fact-checker can
+    cross-reference every claim against its supporting sources.
+    """
+    evidence_text = "\n\n".join(
+        _format_result(index, result)
+        for index, result in enumerate(evidence.results, start=1)
+    )
+    plan_text = _format_plan_for_review(plan)
+    prompt = (
+        "Review the following travel plan for factual accuracy against the provided RAG evidence.\n\n"
+        f"=== TRAVEL PLAN ===\n{plan_text}\n\n"
+        f"=== RAG EVIDENCE ===\n{evidence_text or 'No evidence retrieved.'}\n\n"
+    )
+    tool_section = _format_tool_results(tool_results)
+    if tool_section:
+        prompt += (
+            f"{tool_section}\n\n"
+            "The tool results above are deterministic ground truth. "
+            "Flag any plan content that contradicts them.\n\n"
+        )
+    prompt += (
+        "Instructions:\n"
+        "- Identify every claim in the plan that is NOT supported by the evidence.\n"
+        "- Flag invented POI names, fabricated prices, unsupported crowd claims.\n"
+        "- Check that activities match the destination (e.g., no Beijing POIs in a Hangzhou plan).\n"
+        "- Cross-check budget items against tool_budget results when available.\n"
+        "- Cross-check risk notices against tool_crowd_risk results when available.\n"
+        "- For each flagged claim, specify: location, claim text, why it's flagged, severity (high/medium/low).\n"
+        "- Compute evidence_coverage (0.0-1.0): fraction of plan claims grounded in evidence.\n"
+        "- Compute confidence_score (0.0-1.0): overall confidence after review.\n"
+        "- Provide actionable suggestions for improving the plan.\n"
+        "- If no issues are found, return an empty hallucination_flags list and passed=true."
+    )
+    return prompt
+
+
+def _format_plan_for_review(plan: TravelPlan) -> str:
+    """Format a TravelPlan as readable text for the fact-checker."""
+    import json
+
+    lines: list[str] = [
+        f"Destination: {plan.destination}",
+        f"Days: {plan.days}",
+        f"Summary: {plan.summary}",
+        f"Evidence Sources: {plan.evidence_sources}",
+        f"Fallback Used: {plan.fallback_used}",
+        "",
+        "Day Plans:",
+    ]
+    for i, day in enumerate(plan.day_plans):
+        lines.append(f"  Day {day.day} — {day.title}")
+        for j, activity in enumerate(day.activities):
+            lines.append(f"    [{i}.activities[{j}]] {activity}")
+    lines.append("")
+    lines.append("Budget Items:")
+    for i, item in enumerate(plan.budget_items):
+        lines.append(f"  [{i}] {item.category}: {item.preference} — {item.note}")
+    lines.append("")
+    lines.append("Risk Notices:")
+    for i, notice in enumerate(plan.risk_notices):
+        lines.append(f"  [{i}] [{notice.severity}] {notice.risk_type}: {notice.message}")
+    lines.append("")
+    lines.append(f"Alternatives: {json.dumps(plan.alternatives, ensure_ascii=False)}")
+    return "\n".join(lines)

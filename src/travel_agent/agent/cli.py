@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import uuid
+import warnings
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Annotated, Any
 
 import typer
-from langgraph.checkpoint.sqlite import SqliteSaver
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -25,7 +26,10 @@ from travel_agent.agent.evaluation import (
 from travel_agent.agent.graph import build_travel_agent_graph, build_travel_agent_resume_graph
 from travel_agent.agent.nodes import EvidenceService
 from travel_agent.agent.planner import TravelPlanner, build_default_planner
+from travel_agent.agent.reflection import ReflectionService, build_reflection_service
 from travel_agent.agent.schemas import TravelPlan
+from travel_agent.memory.models import UserProfile
+from travel_agent.memory.store import MemoryStore
 from travel_agent.observability.tracer import AgentTracer, get_tracer
 from travel_agent.rag.api import create_rag_service
 from travel_agent.rag.config import EmbeddingProviderName
@@ -38,6 +42,7 @@ app = typer.Typer(
 console = Console()
 EMBEDDING_PROVIDER_HELP = "auto, qwen, dashscope, openai, sentence-transformers or local."
 DEFAULT_CHECKPOINT_PATH = Path("data/agent_checkpoints.sqlite")
+DEFAULT_MEMORY_PATH = Path("data/user_memory.sqlite")
 
 
 def main() -> None:
@@ -58,7 +63,7 @@ def plan(
     ] = None,
     days: Annotated[
         int | None,
-        typer.Option("--days", help="Override parsed trip length in days."),
+        typer.Option("--days", help="Override parsed trip length in days.", min=1),
     ] = None,
     embedding_provider: Annotated[
         EmbeddingProviderName,
@@ -80,6 +85,18 @@ def plan(
         Path,
         typer.Option("--checkpoint-path", help="SQLite checkpoint database path."),
     ] = DEFAULT_CHECKPOINT_PATH,
+    query_rewrite: Annotated[
+        str,
+        typer.Option("--query-rewrite", help="Query rewrite mode: off, rewrite_only, multi_query"),
+    ] = "off",
+    user_id: Annotated[
+        str | None,
+        typer.Option("--user-id", help="User id for long-term memory profile."),
+    ] = None,
+    memory_path: Annotated[
+        Path,
+        typer.Option("--memory-path", help="SQLite memory database path."),
+    ] = DEFAULT_MEMORY_PATH,
     as_json: Annotated[bool, typer.Option("--json", help="Print machine-readable JSON.")] = False,
 ) -> None:
     """Generate a structured travel plan with RAG evidence."""
@@ -88,7 +105,9 @@ def plan(
         persist_dir=persist_dir,
         collection_name=collection,
         embedding_provider=embedding_provider,
+        query_rewrite=query_rewrite,
     )
+    memory_store = _build_memory_store(memory_path) if user_id else None
     result = run_plan(
         request,
         rag_service,
@@ -97,6 +116,8 @@ def plan(
         days=days,
         thread_id=thread_id,
         checkpoint_path=checkpoint_path,
+        user_id=user_id,
+        memory_store=memory_store,
     )
     if as_json:
         console.print_json(json.dumps(result, ensure_ascii=False))
@@ -109,19 +130,57 @@ def plan(
 def resume(
     thread_id: Annotated[str, typer.Argument(help="Thread id of a previous planning run.")],
     feedback: Annotated[str, typer.Argument(help="Follow-up modification request.")],
+    embedding_provider: Annotated[
+        EmbeddingProviderName,
+        typer.Option("--embedding-provider", help=EMBEDDING_PROVIDER_HELP),
+    ] = EmbeddingProviderName.LOCAL,
+    persist_dir: Annotated[
+        Path,
+        typer.Option("--persist-dir", help="Chroma persistence directory."),
+    ] = Path("data/chroma"),
+    collection: Annotated[
+        str,
+        typer.Option("--collection", help="Chroma collection name."),
+    ] = "travel_destinations",
     checkpoint_path: Annotated[
         Path,
         typer.Option("--checkpoint-path", help="SQLite checkpoint database path."),
     ] = DEFAULT_CHECKPOINT_PATH,
+    query_rewrite: Annotated[
+        str,
+        typer.Option("--query-rewrite", help="Query rewrite mode: off, rewrite_only, multi_query"),
+    ] = "off",
+    user_id: Annotated[
+        str | None,
+        typer.Option("--user-id", help="User id for long-term memory profile."),
+    ] = None,
+    memory_path: Annotated[
+        Path,
+        typer.Option("--memory-path", help="SQLite memory database path."),
+    ] = DEFAULT_MEMORY_PATH,
     as_json: Annotated[bool, typer.Option("--json", help="Print machine-readable JSON.")] = False,
 ) -> None:
-    """Resume a checkpointed plan and apply follow-up user feedback."""
+    """Resume a checkpointed plan and apply follow-up user feedback.
 
+    Feedback that changes destination / days / budget will trigger fresh
+    RAG evidence retrieval so the regenerated plan uses up-to-date data.
+    """
+
+    rag_service = _build_rag_service(
+        persist_dir=persist_dir,
+        collection_name=collection,
+        embedding_provider=embedding_provider,
+        query_rewrite=query_rewrite,
+    )
+    memory_store = _build_memory_store(memory_path) if user_id else None
     result = resume_plan(
         thread_id=thread_id,
         feedback=feedback,
+        rag_service=rag_service,
         planner=build_default_planner(),
         checkpoint_path=checkpoint_path,
+        user_id=user_id,
+        memory_store=memory_store,
     )
     if as_json:
         console.print_json(json.dumps(result, ensure_ascii=False))
@@ -189,13 +248,19 @@ def run_plan(
     request: str,
     rag_service: EvidenceService,
     planner: TravelPlanner | None = None,
+    reflection_service: ReflectionService | None = None,
     destination: str | None = None,
     days: int | None = None,
     thread_id: str | None = None,
     checkpoint_path: Path | None = None,
     tracer: AgentTracer | None = None,
+    user_id: str | None = None,
+    memory_store: MemoryStore | None = None,
 ) -> dict[str, Any]:
     """Run the agent graph and return a serializable payload."""
+
+    if reflection_service is None:
+        reflection_service = build_reflection_service()
 
     active_tracer = tracer or get_tracer()
     active_thread_id = thread_id or uuid.uuid4().hex
@@ -208,9 +273,16 @@ def run_plan(
         request,
         destination=destination,
         days=days,
+        user_id=user_id,
+        thread_id=active_thread_id,
     )
     if checkpoint_path is None:
-        graph = build_travel_agent_graph(rag_service, planner=planner)
+        graph = build_travel_agent_graph(
+            rag_service,
+            planner=planner,
+            memory_service=memory_store,
+            reflection_service=reflection_service,
+        )
         final_state = graph.invoke(initial_state)
     else:
         with _sqlite_checkpointer(checkpoint_path) as checkpointer:
@@ -218,6 +290,8 @@ def run_plan(
                 rag_service,
                 planner=planner,
                 checkpointer=checkpointer,
+                memory_service=memory_store,
+                reflection_service=reflection_service,
             )
             final_state = graph.invoke(
                 initial_state,
@@ -236,13 +310,19 @@ def run_plan(
     active_tracer.record_planner(
         trace_ctx,
         model=os.getenv("TRAVEL_AGENT_MODEL", "qwen3-max"),
-        fallback=isinstance(planner, str) or planner is None,
+        fallback=getattr(plan, "fallback_used", False),
     )
     active_tracer.record_validation(
         trace_ctx,
         passed=final_state.get("is_valid", False),
         errors=final_state.get("validation_errors", []),
     )
+    reflection_report = final_state.get("reflection_report")
+    if reflection_report is not None:
+        active_tracer.record_reflection(
+            trace_ctx,
+            report=reflection_report,
+        )
     active_tracer.finish_run(trace_ctx, plan, thread_id=active_thread_id)
 
     return _state_payload(final_state, active_thread_id)
@@ -251,21 +331,40 @@ def run_plan(
 def resume_plan(
     thread_id: str,
     feedback: str,
+    rag_service: EvidenceService | None = None,
     planner: TravelPlanner | None = None,
+    reflection_service: ReflectionService | None = None,
     checkpoint_path: Path = DEFAULT_CHECKPOINT_PATH,
+    user_id: str | None = None,
+    memory_store: MemoryStore | None = None,
 ) -> dict[str, Any]:
-    """Resume a checkpointed agent thread and regenerate the plan."""
+    """Resume a checkpointed agent thread and regenerate the plan.
+
+    When *rag_service* is provided, destination / day / budget changes in
+    *feedback* trigger fresh RAG evidence retrieval.  Without it the
+    resume still works but re-uses the original evidence from the
+    checkpoint.
+    """
+
+    if reflection_service is None:
+        reflection_service = build_reflection_service()
 
     with _sqlite_checkpointer(checkpoint_path) as checkpointer:
-        graph = build_travel_agent_resume_graph(planner=planner, checkpointer=checkpointer)
+        graph = build_travel_agent_resume_graph(
+            rag_service=rag_service,
+            planner=planner,
+            checkpointer=checkpointer,
+            memory_service=memory_store,
+            reflection_service=reflection_service,
+        )
         config = _thread_config(thread_id)
         snapshot = graph.get_state(config)
         if not snapshot.values:
             raise typer.BadParameter(f"No checkpoint found for thread_id={thread_id!r}.")
-        final_state = graph.invoke(
-            {"latest_user_feedback": feedback},
-            config=config,
-        )
+        invoke_state: dict[str, object] = {"latest_user_feedback": feedback}
+        if user_id:
+            invoke_state["user_id"] = user_id
+        final_state = graph.invoke(invoke_state, config=config)
     return _state_payload(final_state, thread_id)
 
 
@@ -273,12 +372,20 @@ def _plan_initial_state(
     request: str,
     destination: str | None = None,
     days: int | None = None,
+    user_id: str | None = None,
+    thread_id: str | None = None,
 ) -> dict[str, object]:
     initial_state: dict[str, object] = {"question": request}
     if destination:
         initial_state["destination_override"] = destination
     if days is not None:
+        if days < 1:
+            raise ValueError(f"days must be >= 1, got {days}")
         initial_state["days_override"] = days
+    if user_id:
+        initial_state["user_id"] = user_id
+    if thread_id:
+        initial_state["thread_id"] = thread_id
     return initial_state
 
 
@@ -290,8 +397,10 @@ def _state_payload(final_state: dict[str, Any], thread_id: str) -> dict[str, Any
     tool_budget = final_state.get("tool_budget")
     tool_crowd = final_state.get("tool_crowd_risk")
     tool_alt = final_state.get("tool_alternatives")
+    user_profile = final_state.get("user_profile")
+    reflection_report = final_state.get("reflection_report")
 
-    return {
+    payload: dict[str, Any] = {
         "thread_id": thread_id,
         "original_user_request": final_state.get("original_user_request", ""),
         "user_feedback": final_state.get("user_feedback", []),
@@ -305,15 +414,36 @@ def _state_payload(final_state: dict[str, Any], thread_id: str) -> dict[str, Any
         "tool_budget": tool_budget.model_dump() if tool_budget is not None else None,
         "tool_crowd_risk": tool_crowd.model_dump() if tool_crowd is not None else None,
         "tool_alternatives": tool_alt.model_dump() if tool_alt is not None else None,
+        "reflection": reflection_report.model_dump() if reflection_report is not None else None,
     }
+    if user_profile is not None and isinstance(user_profile, UserProfile):
+        payload["user_profile"] = user_profile.model_dump()
+    return payload
 
 
 @contextmanager
-def _sqlite_checkpointer(path: Path) -> Iterator[SqliteSaver]:
+def _sqlite_checkpointer(path: Path) -> Iterator[Any]:
+    """Yield a SqliteSaver with an explicit serializer to avoid default-config drift.
+
+    The ``allowed_objects`` warning is suppressed during import because it
+    originates from a module-level ``Reviver()`` call in the library — not
+    from our configuration.  Explicitly passing ``JsonPlusSerializer``
+    ensures our serialization contract stays pinned regardless of future
+    langgraph default changes.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    with SqliteSaver.from_conn_string(str(path)) as checkpointer:
+    conn = sqlite3.connect(str(path), check_same_thread=False)
+    try:
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message=".*allowed_objects.*")
+            from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+            from langgraph.checkpoint.sqlite import SqliteSaver
+
+        checkpointer = SqliteSaver(conn, serde=JsonPlusSerializer())
         checkpointer.setup()
         yield checkpointer
+    finally:
+        conn.close()
 
 
 def _thread_config(thread_id: str) -> dict[str, dict[str, str]]:
@@ -324,12 +454,18 @@ def _build_rag_service(
     persist_dir: Path,
     collection_name: str,
     embedding_provider: EmbeddingProviderName,
+    query_rewrite: str = "off",
 ) -> EvidenceService:
     return create_rag_service(
         persist_dir=persist_dir,
         collection_name=collection_name,
         embedding_provider=embedding_provider,
+        query_rewrite=query_rewrite,
     )
+
+
+def _build_memory_store(path: Path) -> MemoryStore:
+    return MemoryStore(path)
 
 
 def _print_plan(payload: dict[str, Any]) -> None:
@@ -341,6 +477,8 @@ def _print_plan(payload: dict[str, Any]) -> None:
         Panel.fit(plan_payload["summary"], title="Travel Agent Plan", border_style="cyan")
     )
     console.print(f"[cyan]thread_id:[/cyan] {payload['thread_id']}")
+    if payload.get("user_profile"):
+        _print_user_profile(payload["user_profile"])
     if payload.get("user_feedback"):
         _print_list("User Feedback", payload["user_feedback"])
     _print_request(request)
@@ -352,6 +490,11 @@ def _print_plan(payload: dict[str, Any]) -> None:
 
     if not validation["is_valid"]:
         _print_list("Validation Errors", validation["errors"])
+
+    # Reflection report
+    reflection = payload.get("reflection")
+    if reflection:
+        _print_reflection(reflection)
 
 
 def _print_request(request: dict[str, Any]) -> None:
@@ -410,6 +553,75 @@ def _print_list(title: str, values: list[str]) -> None:
     for index, value in enumerate(values, start=1):
         table.add_row(str(index), value)
     console.print(table)
+
+
+def _print_user_profile(profile: dict[str, Any]) -> None:
+    table = Table(title="User Profile (Memory)")
+    table.add_column("Field", style="cyan")
+    table.add_column("Value", style="green")
+    table.add_row("user_id", str(profile["user_id"]))
+    table.add_row("total_trips", str(profile["total_trips"]))
+    if profile.get("preferred_destinations"):
+        table.add_row("preferred_destinations", ", ".join(profile["preferred_destinations"]))
+    if profile.get("audience_types"):
+        table.add_row("audience_types", ", ".join(profile["audience_types"]))
+    table.add_row("budget_preference", str(profile["budget_preference"]))
+    if profile.get("trip_length_avg"):
+        table.add_row("avg_trip_length", f"{profile['trip_length_avg']:.1f} days")
+    if profile.get("preferences_summary"):
+        table.add_row("summary", profile["preferences_summary"])
+    console.print(table)
+
+
+def _print_reflection(reflection: dict[str, Any]) -> None:
+    """Print the reflection (factuality review) report."""
+    passed = reflection.get("passed", False)
+    status_color = "green" if passed else "yellow"
+    status_text = "PASSED" if passed else "FLAGGED"
+
+    title = f"Reflection Report — {status_text}"
+    console.print(Panel.fit(title, border_style=status_color))
+
+    coverage = reflection.get("evidence_coverage", 0.0)
+    confidence = reflection.get("confidence_score", 0.0)
+    checked = reflection.get("checked_claims", 0)
+    grounded = reflection.get("grounded_claims", 0)
+
+    summary_text = (
+        f"Evidence coverage: {coverage:.0%}  |  "
+        f"Confidence: {confidence:.0%}  |  "
+        f"Claims grounded: {grounded}/{checked}"
+    )
+    console.print(f"[dim]{summary_text}[/dim]")
+
+    flags = reflection.get("hallucination_flags", [])
+    if flags:
+        flag_table = Table(title="Hallucination Flags")
+        flag_table.add_column("Location", style="cyan")
+        flag_table.add_column("Severity", style="red")
+        flag_table.add_column("Claim", overflow="fold", max_width=60)
+        flag_table.add_column("Issue", overflow="fold", max_width=40)
+        for flag in flags:
+            severity_style = "red" if flag.get("severity") == "high" else "yellow"
+            flag_table.add_row(
+                str(flag.get("location", "")),
+                f"[{severity_style}]{flag.get('severity', '')}[/{severity_style}]",
+                str(flag.get("claim", ""))[:200],
+                str(flag.get("issue", "")),
+            )
+        console.print(flag_table)
+
+    issues = reflection.get("issues", [])
+    if issues:
+        console.print("[bold yellow]Issues:[/bold yellow]")
+        for issue in issues:
+            console.print(f"  [yellow]- {issue}[/yellow]")
+
+    suggestions = reflection.get("suggestions", [])
+    if suggestions:
+        console.print("[bold cyan]Suggestions:[/bold cyan]")
+        for suggestion in suggestions:
+            console.print(f"  [dim]- {suggestion}[/dim]")
 
 
 def _print_eval_report(

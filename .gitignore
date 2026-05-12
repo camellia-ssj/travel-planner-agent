@@ -40,6 +40,9 @@ data/*.db
 data/chroma/
 data/eval_chroma/
 data/test_tmp/
+.tmp_pytest/
+data/.pytest_tmp/
+data/pytest_tmp/
 pytest-cache-files-*/
 
 # Logs and runtime files

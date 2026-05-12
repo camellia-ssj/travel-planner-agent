@@ -10,7 +10,7 @@ class TravelRequest(BaseModel):
 
     raw_query: str
     destination: str = ""
-    days: int = 1
+    days: int = Field(default=1, ge=1)
     audience: list[str] = Field(default_factory=list)
     budget_preference: str = "standard"
 
@@ -101,3 +101,29 @@ class TravelPlan(BaseModel):
     alternatives: list[str] = Field(default_factory=list)
     evidence_sources: list[str] = Field(default_factory=list)
     evidence_trace_id: str = ""
+    fallback_used: bool = Field(
+        default=False,
+        description="True when an LLM planner fell back to the rule-based planner",
+    )
+
+
+class HallucinationFlag(BaseModel):
+    """A flagged unsupported or suspicious claim in the generated plan."""
+
+    location: str = Field(description="Where in the plan the claim appears, e.g. 'day_plans[0].activities[1]'")
+    claim: str = Field(description="The suspicious claim text")
+    issue: str = Field(description="Why this claim is flagged")
+    severity: str = Field(default="medium", description="high / medium / low")
+
+
+class ReflectionReport(BaseModel):
+    """Post-generation factuality review of a TravelPlan against RAG evidence."""
+
+    hallucination_flags: list[HallucinationFlag] = Field(default_factory=list)
+    evidence_coverage: float = Field(default=0.0, ge=0.0, le=1.0, description="Fraction of claims grounded in evidence")
+    confidence_score: float = Field(default=0.0, ge=0.0, le=1.0, description="Overall confidence in plan factuality")
+    issues: list[str] = Field(default_factory=list)
+    suggestions: list[str] = Field(default_factory=list)
+    passed: bool = Field(default=True, description="Whether the plan passed reflection checks")
+    checked_claims: int = Field(default=0, description="Total number of claims checked")
+    grounded_claims: int = Field(default=0, description="Number of claims grounded in evidence")

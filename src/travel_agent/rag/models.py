@@ -2,10 +2,35 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Any
 from uuid import uuid4
+
+
+class QueryRewriteMode(StrEnum):
+    """Query rewrite strategies for retrieval."""
+
+    OFF = "off"
+    REWRITE_ONLY = "rewrite_only"
+    MULTI_QUERY = "multi_query"
+    ON = "on"  # aliased to MULTI_QUERY
+
+
+@dataclass(frozen=True)
+class QueryRewriteResult:
+    """Result of LLM-driven query rewriting for travel-domain retrieval."""
+
+    original_query: str
+    rewritten_query: str
+    search_queries: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+    raw_response: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.search_queries:
+            object.__setattr__(self, "search_queries", [self.rewritten_query])
 
 Metadata = dict[str, str | int | float | bool | None]
 

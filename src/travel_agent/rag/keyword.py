@@ -12,72 +12,12 @@ from pathlib import Path
 
 from langchain_core.documents import Document
 
+from travel_agent.knowledge import BUILTIN_CHINESE_TERMS
 from travel_agent.rag.config import KeywordTokenizerName
 
 _WORD_RE = re.compile(r"[a-z0-9]+", flags=re.IGNORECASE)
 _CJK_RE = re.compile(r"[\u4e00-\u9fff]+")
 _USER_DICT_CACHE: set[Path] = set()
-
-_BUILTIN_CHINESE_TERMS = {
-    "八达岭",
-    "白堤",
-    "巴黎",
-    "北京",
-    "备选",
-    "博物馆",
-    "餐厅",
-    "茶馆",
-    "成都",
-    "长城",
-    "长沙",
-    "出租车",
-    "春季",
-    "打车",
-    "大理",
-    "地铁",
-    "东京",
-    "断桥",
-    "儿童",
-    "费用",
-    "高峰",
-    "高铁",
-    "公交",
-    "故宫",
-    "杭州",
-    "酒店",
-    "机场",
-    "家庭",
-    "交通",
-    "景区",
-    "老人",
-    "雷峰塔",
-    "灵隐寺",
-    "龙井",
-    "门票",
-    "民宿",
-    "亲子",
-    "亲子游",
-    "秋季",
-    "人多",
-    "人流",
-    "三天",
-    "商圈",
-    "上海",
-    "苏堤",
-    "苏州",
-    "天气",
-    "铁路",
-    "西湖",
-    "下雨",
-    "夏季",
-    "行程",
-    "预算",
-    "雨天",
-    "游客",
-    "拥挤",
-    "住宿",
-    "周末",
-}
 
 
 def bm25_search(
@@ -259,7 +199,7 @@ def _tokenize_builtin(text: str) -> list[str]:
 
 
 def _dictionary_terms(run: str) -> list[str]:
-    return [term for term in _BUILTIN_CHINESE_TERMS if term in run]
+    return [term for term in BUILTIN_CHINESE_TERMS if term in run]
 
 
 def _cjk_character_ngrams(text: str) -> list[str]:

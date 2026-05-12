@@ -25,15 +25,25 @@ from travel_agent.rag.models import (
     EvidenceBundle,
     IngestReport,
     QueryResponse,
+    QueryRewriteMode,
+    QueryRewriteResult,
     RetrievalTrace,
     SearchResult,
+)
+from travel_agent.rag.query_rewrite import (
+    LLMQueryRewriter,
+    build_query_rewriter,
+    search_with_query_rewrites,
 )
 from travel_agent.rag.service import RagRetriever, RagService
 
 __all__ = [
     "IngestReport",
     "KeywordTokenizerName",
+    "LLMQueryRewriter",
     "QueryResponse",
+    "QueryRewriteMode",
+    "QueryRewriteResult",
     "RagConfig",
     "RerankerName",
     "RagService",
@@ -47,6 +57,7 @@ __all__ = [
     "EmbeddingProviderName",
     "RetrievalTrace",
     "answer_destination_question",
+    "build_query_rewriter",
     "create_rag_service",
     "evaluate_rag",
     "get_destination_retriever",
@@ -56,4 +67,5 @@ __all__ = [
     "retrieve_destination_evidence",
     "reset_knowledge_base",
     "search_destination_knowledge",
+    "search_with_query_rewrites",
 ]
