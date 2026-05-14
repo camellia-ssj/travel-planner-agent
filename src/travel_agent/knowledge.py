@@ -1,8 +1,7 @@
-"""Centralized travel-domain knowledge shared across the RAG engine and Agent.
+"""集中式旅行领域知识，供 RAG 引擎和智能体全局共享。
 
-This module is the single source of truth for destination aliases, section
-mappings, Chinese token dictionaries, holiday keywords, and related constants.
-When adding a new destination, this is the only file that needs to be updated.
+此模块是目的地别名、分类映射、中文分词词典、节假日关键词
+以及相关常量的唯一数据源。新增目的地时，只需要更新此文件。
 """
 
 from __future__ import annotations
@@ -10,7 +9,7 @@ from __future__ import annotations
 import re
 
 # ---------------------------------------------------------------------------
-# Destination aliases (Chinese / mixed-case → canonical English name)
+# 目的地别名（中文 / 混合大小写 → 标准英文名称）
 # ---------------------------------------------------------------------------
 DESTINATION_ALIASES: dict[str, str] = {
     "杭州": "Hangzhou",
@@ -44,7 +43,7 @@ DESTINATION_DISPLAY_NAMES: dict[str, str] = {
 }
 
 # ---------------------------------------------------------------------------
-# Section aliases — map Chinese query terms → canonical section key
+# 分类别名 — 将中文查询词映射到标准分类键
 # ---------------------------------------------------------------------------
 SECTION_QUERY_ALIASES: dict[str, tuple[str, ...]] = {
     "traffic": (
@@ -66,7 +65,7 @@ SECTION_QUERY_ALIASES: dict[str, tuple[str, ...]] = {
 }
 
 # ---------------------------------------------------------------------------
-# Chinese day numbers (used by both service.py and nodes.py regex parsing)
+# 中文数字（供 service.py 和 nodes.py 的正则解析使用）
 # ---------------------------------------------------------------------------
 CHINESE_DAY_NUMBERS: dict[str, int] = {
     "一": 1, "两": 2, "二": 2, "三": 3, "四": 4, "五": 5,
@@ -74,7 +73,7 @@ CHINESE_DAY_NUMBERS: dict[str, int] = {
 }
 
 # ---------------------------------------------------------------------------
-# Weekend / holiday detection keywords
+# 周末 / 节假日检测关键词
 # ---------------------------------------------------------------------------
 WEEKEND_HOLIDAY_KEYWORDS: list[str] = [
     "周末", "双休", "周六", "周日", "礼拜六", "礼拜天", "星期六", "星期日",
@@ -92,7 +91,7 @@ WEEKEND_HOLIDAY_PATTERN: re.Pattern[str] = re.compile(
 )
 
 # ---------------------------------------------------------------------------
-# Built-in Chinese travel terms (BM25 tokenizer dictionary)
+# 内置中文旅行词汇（BM25 分词词典）
 # ---------------------------------------------------------------------------
 BUILTIN_CHINESE_TERMS: set[str] = {
     "八达岭", "白堤", "巴黎", "北京", "备选", "博物馆", "餐厅", "茶馆",
@@ -106,22 +105,22 @@ BUILTIN_CHINESE_TERMS: set[str] = {
 }
 
 # ---------------------------------------------------------------------------
-# Keyword tokens for extractive answer ranking (service._keyword_tokens)
+# 用于抽取式答案排序的关键词分词（service._keyword_tokens）
 # ---------------------------------------------------------------------------
 KEYWORD_ANSWER_TOKENS: tuple[str, ...] = (
     "周末", "拥挤", "亲子", "酒店", "灵隐寺", "东京", "杭州", "迪士尼",
 )
 
 # ---------------------------------------------------------------------------
-# People-count implicit patterns (used by nodes._parse_people_count)
+# 人数隐式匹配模式（供 nodes._parse_people_count 使用）
 # ---------------------------------------------------------------------------
 _PEOPLE_COUNT_PATTERN_DEFS: list[tuple[str, str]] = [
     (r"([一-鿿]+)(\d+)\s*个?\s*人", "m.group(2)"),
     (r"(\d+)\s*个?\s*人", "m.group(1)"),
     (r"我们\s*(\d+)\s*个", "m.group(1)"),
     (r"([\d]+)\s*(?:位|名|adults?|people|persons?)", "m.group(1)"),
-    (r"一家\s*([\d一二两三])\s*口", "m.group(1)"),  # special handling needed
-    (r"([一二两三四五六七八九十])\s*个?\s*人", "m.group(1)"),  # special handling needed
+    (r"一家\s*([\d一二两三])\s*口", "m.group(1)"),  # 需要特殊处理
+    (r"([一二两三四五六七八九十])\s*个?\s*人", "m.group(1)"),  # 需要特殊处理
 ]
 
 PEOPLE_IMPLICIT: dict[str, int] = {

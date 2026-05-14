@@ -1,9 +1,8 @@
-"""Post-generation factuality review (审校) with LLM + deterministic fallback.
+"""基于LLM + 确定性回退的生成后事实性审查（审校）。
 
-Cross-checks every claim in a TravelPlan against RAG evidence and
-deterministic tool results. Uses an LLM structured-output call as the
-primary checker, with a deterministic text-overlap fallback when no API
-key is configured or the LLM call fails.
+将TravelPlan中的每一条声明与RAG证据和确定性工具结果进行交叉检查。
+使用LLM结构化输出调用作为主要检查器，当未配置API密钥或LLM调用失败时，
+回退到确定性文本重叠匹配。
 """
 
 from __future__ import annotations
@@ -25,15 +24,15 @@ from travel_agent.knowledge import DESTINATION_ALIASES
 from travel_agent.rag.models import EvidenceBundle
 
 # ---------------------------------------------------------------------------
-# LLM-backed reflection service
+# 基于LLM的审查服务
 # ---------------------------------------------------------------------------
 
 
 class ReflectionService:
-    """Post-generation fact-checker using LLM structured output.
+    """使用LLM结构化输出进行生成后事实检查。
 
-    Falls back to ``deterministic_reflect()`` when no chat model is
-    available or the LLM call raises.
+    当没有可用的聊天模型或LLM调用抛出异常时，
+    回退到 ``deterministic_reflect()``。
     """
 
     def __init__(
@@ -54,7 +53,7 @@ class ReflectionService:
         evidence: EvidenceBundle,
         tool_results: dict[str, object] | None = None,
     ) -> ReflectionReport:
-        """Run factuality review and return a structured report."""
+        """运行事实性审查并返回结构化报告。"""
         if self._chat_model is not None:
             try:
                 return self._llm_reflect(plan, evidence, tool_results)
@@ -68,7 +67,7 @@ class ReflectionService:
         evidence: EvidenceBundle,
         tool_results: dict[str, object] | None,
     ) -> ReflectionReport:
-        """Invoke the LLM with structured output for factuality review."""
+        """调用LLM以结构化输出进行事实性审查。"""
         structured_model = self._chat_model.with_structured_output(ReflectionReport)  # type: ignore[union-attr]
         response = structured_model.invoke(
             [
@@ -80,8 +79,8 @@ class ReflectionService:
         )
         report = _coerce_reflection_report(response)
         report = _clamp_report_scores(report)
-        # Merge deterministic destination-consistency flags — the LLM may miss
-        # cross-destination contamination that the alias map catches reliably.
+        # 合并确定性目的地一致性标记 — LLM可能会漏掉
+        # 别名映射能可靠捕获的跨目的地污染。
         dest_flags = _check_destination_consistency(plan)
         existing_flags = {_flag_key(flag) for flag in report.hallucination_flags}
         for flag in dest_flags:
@@ -110,7 +109,7 @@ def _flag_key(flag: HallucinationFlag) -> tuple[str, str, str, str]:
 
 
 def _clamp_report_scores(report: ReflectionReport) -> ReflectionReport:
-    """Ensure coverage and confidence stay in 0.0-1.0 range."""
+    """确保证据覆盖率和置信度保持在 0.0-1.0 范围内。"""
     coverage = max(0.0, min(1.0, report.evidence_coverage))
     confidence = max(0.0, min(1.0, report.confidence_score))
     if coverage != report.evidence_coverage or confidence != report.confidence_score:
@@ -129,7 +128,7 @@ def _coerce_reflection_report(response: object) -> ReflectionReport:
 
 
 # ---------------------------------------------------------------------------
-# Deterministic fallback reflection
+# 确定性回退审查
 # ---------------------------------------------------------------------------
 
 
@@ -138,11 +137,11 @@ def deterministic_reflect(
     evidence: EvidenceBundle | None,
     tool_results: dict[str, object] | None = None,
 ) -> ReflectionReport:
-    """Deterministic, no-LLM factuality review.
+    """确定性的、无需LLM的事实性审查。
 
-    Uses text-overlap (SequenceMatcher) for activity/evidence matching
-    and cross-destination alias checks.  Serves as the fallback when
-    no LLM API key is configured.
+    使用文本重叠（SequenceMatcher）进行活动/证据匹配
+    和跨目的地别名校验。当未配置LLM API密钥时
+    作为回退方案。
     """
     if plan is None:
         return ReflectionReport(
@@ -156,7 +155,7 @@ def deterministic_reflect(
     checked = 0
     grounded = 0
 
-    # 1. Review day plan activities
+    # 1. 审查每日计划活动
     for day_idx, day_plan in enumerate(plan.day_plans):
         for act_idx, activity in enumerate(day_plan.activities):
             checked += 1
@@ -182,7 +181,7 @@ def deterministic_reflect(
             else:
                 grounded += 1
 
-    # 2. Review budget items against tool_budget
+    # 2. 对照 tool_budget 审查预算条目
     tool_budget = (tool_results or {}).get("tool_budget")
     if tool_budget is not None and plan.budget_items:
         for item_idx, item in enumerate(plan.budget_items):
@@ -201,7 +200,7 @@ def deterministic_reflect(
             else:
                 grounded += 1
 
-    # 3. Review risk notices against tool_crowd_risk and evidence
+    # 3. 对照 tool_crowd_risk 和证据审查风险提示
     tool_crowd = (tool_results or {}).get("tool_crowd_risk")
     if plan.risk_notices:
         for notice_idx, notice in enumerate(plan.risk_notices):
@@ -220,7 +219,7 @@ def deterministic_reflect(
             else:
                 grounded += 1
 
-    # 4. Review alternatives against tool_alternatives and evidence
+    # 4. 对照 tool_alternatives 和证据审查备选方案
     tool_alt = (tool_results or {}).get("tool_alternatives")
     if plan.alternatives:
         for alt_idx, alt in enumerate(plan.alternatives):
@@ -239,13 +238,13 @@ def deterministic_reflect(
             else:
                 grounded += 1
 
-    # 5. Cross-destination check
+    # 5. 跨目的地检查
     dest_issues = _check_destination_consistency(plan)
     for issue in dest_issues:
         flags.append(issue)
         checked += 1
 
-    # 6. Build the report
+    # 6. 构建报告
     evidence_coverage = round(grounded / max(checked, 1), 4)
     high_severity = sum(1 for f in flags if f.severity == "high")
     medium_severity = sum(1 for f in flags if f.severity == "medium")
@@ -290,7 +289,7 @@ def deterministic_reflect(
 
 
 # ---------------------------------------------------------------------------
-# Deterministic helper functions (shared with nodes.py)
+# 确定性辅助函数（与 nodes.py 共享）
 # ---------------------------------------------------------------------------
 
 
@@ -378,7 +377,7 @@ def _check_alternative(
 
 
 def _check_destination_consistency(plan: TravelPlan) -> list[HallucinationFlag]:
-    """Flag any plan content that references the wrong destination."""
+    """标记计划中引用错误目的地的任何内容。"""
     flags: list[HallucinationFlag] = []
     plan_dest = plan.destination.lower() if plan.destination else ""
 
@@ -431,7 +430,7 @@ def _check_destination_consistency(plan: TravelPlan) -> list[HallucinationFlag]:
 
 
 # ---------------------------------------------------------------------------
-# Factory
+# 工厂函数
 # ---------------------------------------------------------------------------
 
 
@@ -459,10 +458,9 @@ class ReflectionSettings:
 def build_reflection_service(
     settings: ReflectionSettings | None = None,
 ) -> ReflectionService:
-    """Build a ReflectionService with the same LLM config as the planner.
+    """使用与规划器相同的LLM配置构建 ReflectionService。
 
-    Returns a service with only deterministic fallback when no API key
-    is configured.
+    当未配置API密钥时，返回仅含确定性回退的服务。
     """
     active_settings = settings or ReflectionSettings.from_env()
     chat_model = _build_chat_model(active_settings)

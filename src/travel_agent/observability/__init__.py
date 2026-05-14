@@ -1,4 +1,4 @@
-"""LLMOps observability module — LangSmith / Langfuse tracing for the travel agent."""
+"""LLMOps 可观测性模块 — 旅行智能体的 LangSmith / Langfuse 追踪。"""
 
 from travel_agent.observability.tracer import (
     AgentTraceContext,

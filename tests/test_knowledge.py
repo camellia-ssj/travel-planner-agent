@@ -1,4 +1,4 @@
-"""Unit tests for the centralized travel knowledge module."""
+"""集中式旅行知识模块的单元测试。"""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ class TestDestinationAliases:
     def test_all_destinations_have_display_names(self) -> None:
         canonical = set(DESTINATION_ALIASES.values())
         assert canonical == set(DESTINATION_DISPLAY_NAMES.keys()), (
-            "Every canonical destination must have a display name"
+            "每个规范目的地都必须有对应的显示名称"
         )
 
     def test_chinese_alias_maps_to_english(self) -> None:
@@ -49,8 +49,8 @@ class TestSectionQueryAliases:
 
     def test_section_aliases_are_non_empty_tuples(self) -> None:
         for section, aliases in SECTION_QUERY_ALIASES.items():
-            assert isinstance(aliases, tuple), f"{section} aliases must be a tuple"
-            assert len(aliases) > 0, f"{section} aliases must not be empty"
+            assert isinstance(aliases, tuple), f"{section} 别名必须是元组"
+            assert len(aliases) > 0, f"{section} 别名不能为空"
 
 
 class TestChineseDayNumbers:
@@ -63,7 +63,7 @@ class TestChineseDayNumbers:
     def test_one_to_ten_coverage(self) -> None:
         for i in range(1, 11):
             values = list(CHINESE_DAY_NUMBERS.values())
-            assert i in values, f"Missing day number {i}"
+            assert i in values, f"缺少数字 {i}"
 
 
 class TestWeekendHolidayDetection:

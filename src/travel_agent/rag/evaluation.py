@@ -1,4 +1,4 @@
-"""Pure-RAG retrieval evaluation utilities."""
+"""纯 RAG 检索评估工具。"""
 
 from __future__ import annotations
 
@@ -60,7 +60,7 @@ def evaluate_rag(
     top_k: int,
     thresholds: dict[str, float] | None = None,
 ) -> EvalReport:
-    """Build a temporary index and evaluate retrieval quality without any LLM calls."""
+    """构建临时索引并在不调用任何 LLM 的情况下评估检索质量。"""
 
     if persist_dir.exists():
         shutil.rmtree(persist_dir, ignore_errors=True)
@@ -111,7 +111,7 @@ def evaluate_quality_gate(
     metrics: dict[str, float],
     thresholds: dict[str, float] | None = None,
 ) -> dict[str, Any]:
-    """Return pass/fail status for configured RAG quality thresholds."""
+    """返回配置的 RAG 质量阈值的通过/失败状态。"""
 
     active_thresholds = thresholds or DEFAULT_QUALITY_THRESHOLDS
     failures = []

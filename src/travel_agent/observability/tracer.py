@@ -1,6 +1,6 @@
-"""LLMOps tracing abstraction — LangSmith primary, Langfuse optional.
+"""LLMOps 追踪抽象层 — LangSmith 为主，Langfuse 可选。
 
-No API keys required. When keys are absent, tracing is a silent no-op.
+无需 API 密钥。未配置密钥时，追踪静默无操作。
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from travel_agent.rag.models import EvidenceBundle
 
 @dataclass
 class AgentTraceContext:
-    """Metrics collected during one agent planning run."""
+    """单次智能体规划运行期间收集的指标数据。"""
 
     user_request: str = ""
     parsed_request: TravelRequest | None = None
@@ -64,12 +64,12 @@ class AgentTraceContext:
 
 
 class AgentTracer:
-    """Tracing facade that writes to LangSmith and/or Langfuse when configured.
+    """追踪门面，在配置了 LangSmith 和/或 Langfuse 时写入追踪数据。
 
-    Design:
-    - LangSmith is primary (LANGCHAIN_TRACING_V2=true + LANGCHAIN_API_KEY)
-    - Langfuse is optional (LANGFUSE_PUBLIC_KEY + LANGFUSE_SECRET_KEY)
-    - When neither is configured, all calls are no-ops.
+    设计：
+    - LangSmith 为主（LANGCHAIN_TRACING_V2=true + LANGCHAIN_API_KEY）
+    - Langfuse 为可选（LANGFUSE_PUBLIC_KEY + LANGFUSE_SECRET_KEY）
+    - 两者均未配置时，所有调用均为空操作。
     """
 
     def __init__(self) -> None:
@@ -81,7 +81,7 @@ class AgentTracer:
         self._run_name: str = ""
 
     # ------------------------------------------------------------------
-    # Public API
+    # 公开 API
     # ------------------------------------------------------------------
 
     def start_run(self, run_name: str, user_request: str) -> AgentTraceContext:
@@ -143,7 +143,7 @@ class AgentTracer:
         self._maybe_finish_langfuse(payload)
 
     # ------------------------------------------------------------------
-    # LangSmith (primary)
+    # LangSmith（主追踪）
     # ------------------------------------------------------------------
 
     def _langsmith_enabled(self) -> bool:
@@ -172,7 +172,7 @@ class AgentTracer:
         try:
             run = self._langsmith_client  # type: ignore[union-attr]
             if run is not None and hasattr(run, "update_run"):
-                pass  # The run will be populated at finish via create_run
+                pass  # run 将在 finish 时通过 create_run 填充
         except Exception:
             pass
 
@@ -199,7 +199,7 @@ class AgentTracer:
             pass
 
     # ------------------------------------------------------------------
-    # Langfuse (optional)
+    # Langfuse（可选追踪）
     # ------------------------------------------------------------------
 
     def _langfuse_enabled(self) -> bool:
@@ -239,7 +239,7 @@ class AgentTracer:
                     },
                     metadata=payload,
                 )
-                # Span for trace grouping
+                # 为追踪分组创建 span
                 trace.span(
                     name="plan_generation",
                     metadata={
@@ -254,7 +254,7 @@ class AgentTracer:
 
 
 # ---------------------------------------------------------------------------
-# Global tracer singleton
+# 全局追踪器单例
 # ---------------------------------------------------------------------------
 
 _tracer: AgentTracer | None = None
@@ -278,10 +278,10 @@ def build_tracer() -> AgentTracer:
 
 @contextmanager
 def trace_agent_run(run_name: str, user_request: str) -> Iterator[AgentTraceContext]:
-    """Context manager for instrumenting one agent planning run."""
+    """用于监测单次智能体规划运行的上下文管理器。"""
     tracer = get_tracer()
     ctx = tracer.start_run(run_name=run_name, user_request=user_request)
     try:
         yield ctx
     finally:
-        pass  # Caller must call tracer.finish_run
+        pass  # 调用者必须调用 tracer.finish_run

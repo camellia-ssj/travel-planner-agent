@@ -1,4 +1,4 @@
-"""Domain models returned by the travel RAG module."""
+"""旅行 RAG 模块返回的领域模型。"""
 
 from __future__ import annotations
 
@@ -10,17 +10,17 @@ from uuid import uuid4
 
 
 class QueryRewriteMode(StrEnum):
-    """Query rewrite strategies for retrieval."""
+    """检索的查询重写策略。"""
 
     OFF = "off"
     REWRITE_ONLY = "rewrite_only"
     MULTI_QUERY = "multi_query"
-    ON = "on"  # aliased to MULTI_QUERY
+    ON = "on"  # 别名指向 MULTI_QUERY
 
 
 @dataclass(frozen=True)
 class QueryRewriteResult:
-    """Result of LLM-driven query rewriting for travel-domain retrieval."""
+    """LLM 驱动的旅行领域检索查询重写结果。"""
 
     original_query: str
     rewritten_query: str
@@ -37,7 +37,7 @@ Metadata = dict[str, str | int | float | bool | None]
 
 @dataclass(frozen=True)
 class SearchResult:
-    """A retrieved Chroma chunk with user-facing metadata."""
+    """检索到的 Chroma 文档块，附带面向用户的元数据。"""
 
     content: str
     source: str
@@ -48,7 +48,7 @@ class SearchResult:
 
 @dataclass(frozen=True)
 class IngestReport:
-    """Summary returned after ingestion."""
+    """入库后返回的摘要。"""
 
     scanned_files: int
     loaded_documents: int
@@ -62,7 +62,7 @@ class IngestReport:
 
 @dataclass(frozen=True)
 class QueryResponse:
-    """Retrieval response returned by the pure RAG module."""
+    """纯 RAG 模块返回的检索响应。"""
 
     query: str
     results: list[SearchResult]
@@ -85,7 +85,7 @@ class QueryResponse:
 
 @dataclass(frozen=True)
 class RetrievalTrace:
-    """Operational metadata for one pure-RAG retrieval call."""
+    """单次纯 RAG 检索调用的操作元数据。"""
 
     trace_id: str
     retrieval_mode: str
@@ -122,7 +122,7 @@ class RetrievalTrace:
 
 @dataclass(frozen=True)
 class EvidenceBundle:
-    """Structured retrieval context for downstream LangGraph nodes."""
+    """供下游 LangGraph 节点使用的结构化检索上下文。"""
 
     question: str
     results: list[SearchResult]
@@ -151,7 +151,7 @@ class EvidenceBundle:
 
 @dataclass(frozen=True)
 class AnswerResponse:
-    """Extractive answer assembled from retrieved knowledge chunks."""
+    """从检索到的知识块中组合而成的抽取式答案。"""
 
     question: str
     answer: str

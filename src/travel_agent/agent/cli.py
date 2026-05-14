@@ -1,4 +1,4 @@
-"""Typer + Rich CLI for the LangGraph travel agent MVP."""
+"""基于 Typer + Rich 的 LangGraph 旅行规划 Agent CLI。"""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from travel_agent.agent.display import display_plan_payload
 from travel_agent.agent.evaluation import (
     AgentEvalMetrics,
     build_eval_report,
@@ -36,11 +37,11 @@ from travel_agent.rag.config import EmbeddingProviderName
 
 app = typer.Typer(
     name="travel-agent",
-    help="LangGraph travel planning agent with structured LLM planning and rule fallback.",
+    help="基于 LangGraph 的旅行规划 Agent，支持结构化 LLM 规划与规则兜底。",
     no_args_is_help=True,
 )
 console = Console()
-EMBEDDING_PROVIDER_HELP = "auto, qwen, dashscope, openai, sentence-transformers or local."
+EMBEDDING_PROVIDER_HELP = "auto, qwen, dashscope, openai, sentence-transformers 或 local。"
 DEFAULT_CHECKPOINT_PATH = Path("data/agent_checkpoints.sqlite")
 DEFAULT_MEMORY_PATH = Path("data/user_memory.sqlite")
 
@@ -51,19 +52,19 @@ def main() -> None:
 
 @app.callback()
 def _callback() -> None:
-    """Run the travel agent command group."""
+    """运行旅行规划 Agent 命令组。"""
 
 
 @app.command()
 def plan(
-    request: Annotated[str, typer.Argument(help="Natural-language travel planning request.")],
+    request: Annotated[str, typer.Argument(help="自然语言旅行规划需求。")],
     destination: Annotated[
         str | None,
-        typer.Option("--destination", "-d", help="Override parsed destination."),
+        typer.Option("--destination", "-d", help="手动指定目的地，覆盖解析结果。"),
     ] = None,
     days: Annotated[
         int | None,
-        typer.Option("--days", help="Override parsed trip length in days.", min=1),
+        typer.Option("--days", help="手动指定游玩天数，覆盖解析结果。", min=1),
     ] = None,
     embedding_provider: Annotated[
         EmbeddingProviderName,
@@ -71,35 +72,35 @@ def plan(
     ] = EmbeddingProviderName.LOCAL,
     persist_dir: Annotated[
         Path,
-        typer.Option("--persist-dir", help="Chroma persistence directory."),
+        typer.Option("--persist-dir", help="Chroma 持久化目录。"),
     ] = Path("data/chroma"),
     collection: Annotated[
         str,
-        typer.Option("--collection", help="Chroma collection name."),
+        typer.Option("--collection", help="Chroma 集合名称。"),
     ] = "travel_destinations",
     thread_id: Annotated[
         str | None,
-        typer.Option("--thread-id", help="Optional thread id for checkpoint recovery."),
+        typer.Option("--thread-id", help="可选线程 ID，用于检查点恢复。"),
     ] = None,
     checkpoint_path: Annotated[
         Path,
-        typer.Option("--checkpoint-path", help="SQLite checkpoint database path."),
+        typer.Option("--checkpoint-path", help="SQLite 检查点数据库路径。"),
     ] = DEFAULT_CHECKPOINT_PATH,
     query_rewrite: Annotated[
         str,
-        typer.Option("--query-rewrite", help="Query rewrite mode: off, rewrite_only, multi_query"),
+        typer.Option("--query-rewrite", help="查询改写模式: off, rewrite_only, multi_query"),
     ] = "off",
     user_id: Annotated[
         str | None,
-        typer.Option("--user-id", help="User id for long-term memory profile."),
+        typer.Option("--user-id", help="用户 ID，用于长期记忆画像。"),
     ] = None,
     memory_path: Annotated[
         Path,
-        typer.Option("--memory-path", help="SQLite memory database path."),
+        typer.Option("--memory-path", help="SQLite 记忆数据库路径。"),
     ] = DEFAULT_MEMORY_PATH,
-    as_json: Annotated[bool, typer.Option("--json", help="Print machine-readable JSON.")] = False,
+    as_json: Annotated[bool, typer.Option("--json", help="输出机器可读的 JSON 格式。")] = False,
 ) -> None:
-    """Generate a structured travel plan with RAG evidence."""
+    """生成结构化旅行计划，基于 RAG 证据检索。"""
 
     rag_service = _build_rag_service(
         persist_dir=persist_dir,
@@ -128,42 +129,42 @@ def plan(
 
 @app.command()
 def resume(
-    thread_id: Annotated[str, typer.Argument(help="Thread id of a previous planning run.")],
-    feedback: Annotated[str, typer.Argument(help="Follow-up modification request.")],
+    thread_id: Annotated[str, typer.Argument(help="之前规划运行的线程 ID。")],
+    feedback: Annotated[str, typer.Argument(help="后续修改需求。")],
     embedding_provider: Annotated[
         EmbeddingProviderName,
         typer.Option("--embedding-provider", help=EMBEDDING_PROVIDER_HELP),
     ] = EmbeddingProviderName.LOCAL,
     persist_dir: Annotated[
         Path,
-        typer.Option("--persist-dir", help="Chroma persistence directory."),
+        typer.Option("--persist-dir", help="Chroma 持久化目录。"),
     ] = Path("data/chroma"),
     collection: Annotated[
         str,
-        typer.Option("--collection", help="Chroma collection name."),
+        typer.Option("--collection", help="Chroma 集合名称。"),
     ] = "travel_destinations",
     checkpoint_path: Annotated[
         Path,
-        typer.Option("--checkpoint-path", help="SQLite checkpoint database path."),
+        typer.Option("--checkpoint-path", help="SQLite 检查点数据库路径。"),
     ] = DEFAULT_CHECKPOINT_PATH,
     query_rewrite: Annotated[
         str,
-        typer.Option("--query-rewrite", help="Query rewrite mode: off, rewrite_only, multi_query"),
+        typer.Option("--query-rewrite", help="查询改写模式: off, rewrite_only, multi_query"),
     ] = "off",
     user_id: Annotated[
         str | None,
-        typer.Option("--user-id", help="User id for long-term memory profile."),
+        typer.Option("--user-id", help="用户 ID，用于长期记忆画像。"),
     ] = None,
     memory_path: Annotated[
         Path,
-        typer.Option("--memory-path", help="SQLite memory database path."),
+        typer.Option("--memory-path", help="SQLite 记忆数据库路径。"),
     ] = DEFAULT_MEMORY_PATH,
-    as_json: Annotated[bool, typer.Option("--json", help="Print machine-readable JSON.")] = False,
+    as_json: Annotated[bool, typer.Option("--json", help="输出机器可读的 JSON 格式。")] = False,
 ) -> None:
-    """Resume a checkpointed plan and apply follow-up user feedback.
+    """恢复检查点中的计划并应用用户反馈。
 
-    Feedback that changes destination / days / budget will trigger fresh
-    RAG evidence retrieval so the regenerated plan uses up-to-date data.
+    修改目的地/天数/预算的反馈将触发新的 RAG 证据检索，
+    确保重新生成的计划使用最新数据。
     """
 
     rag_service = _build_rag_service(
@@ -190,34 +191,148 @@ def resume(
 
 
 @app.command()
+def chat(
+    user_id: Annotated[
+        str | None,
+        typer.Option("--user-id", help="用户 ID，用于长期记忆画像。"),
+    ] = None,
+    thread_id: Annotated[
+        str | None,
+        typer.Option("--thread-id", help="通过线程 ID 恢复之前的对话。"),
+    ] = None,
+    embedding_provider: Annotated[
+        EmbeddingProviderName,
+        typer.Option("--embedding-provider", help=EMBEDDING_PROVIDER_HELP),
+    ] = EmbeddingProviderName.LOCAL,
+    persist_dir: Annotated[
+        Path,
+        typer.Option("--persist-dir", help="Chroma 持久化目录。"),
+    ] = Path("data/chroma"),
+    collection: Annotated[
+        str,
+        typer.Option("--collection", help="Chroma 集合名称。"),
+    ] = "travel_destinations",
+    checkpoint_path: Annotated[
+        Path,
+        typer.Option("--checkpoint-path", help="SQLite 检查点数据库路径。"),
+    ] = DEFAULT_CHECKPOINT_PATH,
+    query_rewrite: Annotated[
+        str,
+        typer.Option("--query-rewrite", help="查询改写模式: off, rewrite_only, multi_query"),
+    ] = "off",
+    memory_path: Annotated[
+        Path,
+        typer.Option("--memory-path", help="SQLite 记忆数据库路径。"),
+    ] = DEFAULT_MEMORY_PATH,
+    streaming: Annotated[
+        bool,
+        typer.Option("--streaming/--no-streaming", help="启用流式输出。"),
+    ] = True,
+) -> None:
+    """启动交互式对话旅行规划会话。
+
+    与 AI 旅行顾问自然对话。Agent 会先询问澄清问题，
+    然后生成包含预算、风险提示和备选方案的完整旅行计划。
+    你可以在同一会话中提出反馈并迭代优化计划。
+
+    支持斜杠命令: /plan, /feedback, /profile, /history,
+    /reset, /export, /help, /quit。
+    """
+    from travel_agent.agent.planner import _build_chat_model, AgentPlannerSettings
+    from travel_agent.conversation.cli_repl import ConversationREPL
+    from travel_agent.conversation.graph import build_conversation_graph
+
+    import logging
+    logging.root.handlers = [logging.NullHandler()]
+
+    rag_service = _build_rag_service(
+        persist_dir=persist_dir,
+        collection_name=collection,
+        embedding_provider=embedding_provider,
+        query_rewrite=query_rewrite,
+    )
+    memory_store = _build_memory_store(memory_path) if user_id else None
+    reflection_service = build_reflection_service()
+
+    # 构建对话用的 LLM 聊天模型
+    settings = AgentPlannerSettings.from_env()
+    chat_model = _build_chat_model(settings)
+    if chat_model is None:
+        console.print(
+            "[yellow]未配置 LLM API Key，将使用规则模式。"
+            "对话体验会受限。[/yellow]\n"
+            "[dim]设置 DASHSCOPE_API_KEY 或 OPENAI_API_KEY 以启用完整对话功能。[/dim]"
+        )
+        # 兜底：尝试构建一个简单的聊天模型
+        from langchain_openai import ChatOpenAI
+        api_key = os.getenv("DASHSCOPE_API_KEY") or os.getenv("OPENAI_API_KEY")
+        if api_key:
+            base_url = None
+            if os.getenv("DASHSCOPE_API_KEY"):
+                base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+            chat_model = ChatOpenAI(
+                model=settings.model,
+                api_key=api_key,
+                base_url=base_url,
+                temperature=0.7,
+            )
+        else:
+            console.print(
+                "[red]需要配置 API Key 才能使用对话模式。[/red]\n"
+                "[dim]请设置 DASHSCOPE_API_KEY 或 OPENAI_API_KEY 环境变量。[/dim]"
+            )
+            raise typer.Exit(code=1)
+
+    planner = build_default_planner(settings)
+
+    with _sqlite_checkpointer(checkpoint_path) as checkpointer:
+        conv_graph = build_conversation_graph(
+            chat_model=chat_model,
+            rag_service=rag_service,
+            planner=planner,
+            checkpointer=checkpointer,
+            memory_service=memory_store,
+            reflection_service=reflection_service,
+        )
+        repl = ConversationREPL(
+            graph=conv_graph,
+            console=console,
+            user_id=user_id,
+            thread_id=thread_id,
+            streaming=streaming,
+        )
+        repl.run()
+
+
+@app.command()
 def eval(
     cases_path: Annotated[
         Path,
         typer.Option(
             "--cases", "-c",
-            help="Path to JSONL eval cases (default: tests/fixtures/agent_eval_cases.jsonl)",
+            help="JSONL 评估用例文件路径（默认: tests/fixtures/agent_eval_cases.jsonl）",
         ),
     ] = Path("tests/fixtures/agent_eval_cases.jsonl"),
-    as_json: Annotated[bool, typer.Option("--json", help="Print machine-readable JSON.")] = False,
+    as_json: Annotated[bool, typer.Option("--json", help="输出机器可读的 JSON 格式。")] = False,
     verbose: Annotated[
-        bool, typer.Option("--verbose", "-v", help="Show per-case failures.")
+        bool, typer.Option("--verbose", "-v", help="显示每个用例的失败详情。")
     ] = False,
 ) -> None:
-    """Run offline agent evaluation with deterministic rule-based planner.
+    """使用确定性规则规划器运行离线 Agent 评估。
 
-    Evaluates plan quality across all cases in the JSONL fixture without any LLM calls.
+    在 JSONL 测试集中的所有用例上评估计划质量，无需 LLM 调用。
     """
     if not cases_path.exists():
-        console.print(f"[red]Eval cases file not found: {cases_path}[/red]")
+        console.print(f"[red]评估用例文件未找到: {cases_path}[/red]")
         raise typer.Exit(code=1)
 
     cases = load_agent_eval_cases(cases_path)
     if not cases:
-        console.print("[red]No eval cases loaded.[/red]")
+        console.print("[red]未加载到评估用例。[/red]")
         raise typer.Exit(code=1)
 
-    # Build a minimal evidence map from the fixture — every case that
-    # declares expected_evidence_sources gets one synthetic result per source.
+    # 从测试集构建最小证据映射——每个声明了 expected_evidence_sources
+    # 的用例都会获得每个来源的一条合成结果
     evidence_map: dict[str, list] = {}
     for case in cases:
         if case.expected_evidence_sources and not case.expected_empty:
@@ -257,7 +372,7 @@ def run_plan(
     user_id: str | None = None,
     memory_store: MemoryStore | None = None,
 ) -> dict[str, Any]:
-    """Run the agent graph and return a serializable payload."""
+    """运行 Agent 图并返回可序列化的结果。"""
 
     if reflection_service is None:
         reflection_service = build_reflection_service()
@@ -298,7 +413,7 @@ def run_plan(
                 config=_thread_config(active_thread_id),
             )
 
-    # Record trace metrics
+    # 记录追踪指标
     request_obj = final_state.get("request")
     evidence = final_state.get("evidence")
     plan = final_state["plan"]
@@ -338,12 +453,11 @@ def resume_plan(
     user_id: str | None = None,
     memory_store: MemoryStore | None = None,
 ) -> dict[str, Any]:
-    """Resume a checkpointed agent thread and regenerate the plan.
+    """恢复检查点中的 Agent 线程并重新生成计划。
 
-    When *rag_service* is provided, destination / day / budget changes in
-    *feedback* trigger fresh RAG evidence retrieval.  Without it the
-    resume still works but re-uses the original evidence from the
-    checkpoint.
+    提供 *rag_service* 时，反馈中的目的地/天数/预算变更
+    会触发新的 RAG 证据检索。不提供时仍可恢复，
+    但会复用检查点中原始的证据数据。
     """
 
     if reflection_service is None:
@@ -360,7 +474,7 @@ def resume_plan(
         config = _thread_config(thread_id)
         snapshot = graph.get_state(config)
         if not snapshot.values:
-            raise typer.BadParameter(f"No checkpoint found for thread_id={thread_id!r}.")
+            raise typer.BadParameter(f"未找到 thread_id={thread_id!r} 的检查点。")
         invoke_state: dict[str, object] = {"latest_user_feedback": feedback}
         if user_id:
             invoke_state["user_id"] = user_id
@@ -392,7 +506,7 @@ def _plan_initial_state(
 def _state_payload(final_state: dict[str, Any], thread_id: str) -> dict[str, Any]:
     plan = final_state["plan"]
     if not isinstance(plan, TravelPlan):
-        raise typer.BadParameter("Agent graph did not return a TravelPlan.")
+        raise typer.BadParameter("Agent 图未返回 TravelPlan。")
 
     tool_budget = final_state.get("tool_budget")
     tool_crowd = final_state.get("tool_crowd_risk")
@@ -423,13 +537,12 @@ def _state_payload(final_state: dict[str, Any], thread_id: str) -> dict[str, Any
 
 @contextmanager
 def _sqlite_checkpointer(path: Path) -> Iterator[Any]:
-    """Yield a SqliteSaver with an explicit serializer to avoid default-config drift.
+    """创建 SqliteSaver，显式指定序列化器以避免默认配置漂移。
 
-    The ``allowed_objects`` warning is suppressed during import because it
-    originates from a module-level ``Reviver()`` call in the library — not
-    from our configuration.  Explicitly passing ``JsonPlusSerializer``
-    ensures our serialization contract stays pinned regardless of future
-    langgraph default changes.
+    ``allowed_objects`` 警告在导入期间被抑制，因为它来自库内部
+    的模块级 ``Reviver()`` 调用——与我们的配置无关。
+    显式传入 ``JsonPlusSerializer`` 确保序列化约定不受
+    未来 langgraph 默认值变更的影响。
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path), check_same_thread=False)
@@ -469,159 +582,8 @@ def _build_memory_store(path: Path) -> MemoryStore:
 
 
 def _print_plan(payload: dict[str, Any]) -> None:
-    request = payload["request"]
-    plan_payload = payload["plan"]
-    validation = payload["validation"]
-
-    console.print(
-        Panel.fit(plan_payload["summary"], title="Travel Agent Plan", border_style="cyan")
-    )
-    console.print(f"[cyan]thread_id:[/cyan] {payload['thread_id']}")
-    if payload.get("user_profile"):
-        _print_user_profile(payload["user_profile"])
-    if payload.get("user_feedback"):
-        _print_list("User Feedback", payload["user_feedback"])
-    _print_request(request)
-    _print_day_plans(plan_payload["day_plans"])
-    _print_budget(plan_payload["budget_items"])
-    _print_risks(plan_payload["risk_notices"])
-    _print_list("Alternatives", plan_payload["alternatives"])
-    _print_list("Evidence Sources", plan_payload["evidence_sources"])
-
-    if not validation["is_valid"]:
-        _print_list("Validation Errors", validation["errors"])
-
-    # Reflection report
-    reflection = payload.get("reflection")
-    if reflection:
-        _print_reflection(reflection)
-
-
-def _print_request(request: dict[str, Any]) -> None:
-    table = Table(title="Parsed Travel Request")
-    table.add_column("Field", style="cyan")
-    table.add_column("Value", style="green")
-    table.add_row("destination", str(request["destination"]))
-    table.add_row("days", str(request["days"]))
-    table.add_row("audience", ", ".join(request["audience"]))
-    table.add_row("budget_preference", str(request["budget_preference"]))
-    console.print(table)
-
-
-def _print_day_plans(day_plans: list[dict[str, Any]]) -> None:
-    table = Table(title="Daily Itinerary", show_lines=True)
-    table.add_column("Day", justify="right", style="cyan", width=5)
-    table.add_column("Title", style="green")
-    table.add_column("Activities", overflow="fold")
-    for day_plan in day_plans:
-        table.add_row(
-            str(day_plan["day"]),
-            str(day_plan["title"]),
-            "\n".join(f"- {activity}" for activity in day_plan["activities"]),
-        )
-    console.print(table)
-
-
-def _print_budget(budget_items: list[dict[str, Any]]) -> None:
-    table = Table(title="Budget Estimate")
-    table.add_column("Category", style="cyan")
-    table.add_column("Preference", style="green")
-    table.add_column("Note", overflow="fold")
-    for item in budget_items:
-        table.add_row(str(item["category"]), str(item["preference"]), str(item["note"]))
-    console.print(table)
-
-
-def _print_risks(risk_notices: list[dict[str, Any]]) -> None:
-    table = Table(title="Risk Notices")
-    table.add_column("Type", style="cyan")
-    table.add_column("Severity", style="yellow")
-    table.add_column("Message", overflow="fold")
-    for notice in risk_notices:
-        table.add_row(
-            str(notice["risk_type"]),
-            str(notice["severity"]),
-            str(notice["message"]),
-        )
-    console.print(table)
-
-
-def _print_list(title: str, values: list[str]) -> None:
-    table = Table(title=title)
-    table.add_column("#", justify="right", style="cyan", width=4)
-    table.add_column("Value", overflow="fold")
-    for index, value in enumerate(values, start=1):
-        table.add_row(str(index), value)
-    console.print(table)
-
-
-def _print_user_profile(profile: dict[str, Any]) -> None:
-    table = Table(title="User Profile (Memory)")
-    table.add_column("Field", style="cyan")
-    table.add_column("Value", style="green")
-    table.add_row("user_id", str(profile["user_id"]))
-    table.add_row("total_trips", str(profile["total_trips"]))
-    if profile.get("preferred_destinations"):
-        table.add_row("preferred_destinations", ", ".join(profile["preferred_destinations"]))
-    if profile.get("audience_types"):
-        table.add_row("audience_types", ", ".join(profile["audience_types"]))
-    table.add_row("budget_preference", str(profile["budget_preference"]))
-    if profile.get("trip_length_avg"):
-        table.add_row("avg_trip_length", f"{profile['trip_length_avg']:.1f} days")
-    if profile.get("preferences_summary"):
-        table.add_row("summary", profile["preferences_summary"])
-    console.print(table)
-
-
-def _print_reflection(reflection: dict[str, Any]) -> None:
-    """Print the reflection (factuality review) report."""
-    passed = reflection.get("passed", False)
-    status_color = "green" if passed else "yellow"
-    status_text = "PASSED" if passed else "FLAGGED"
-
-    title = f"Reflection Report — {status_text}"
-    console.print(Panel.fit(title, border_style=status_color))
-
-    coverage = reflection.get("evidence_coverage", 0.0)
-    confidence = reflection.get("confidence_score", 0.0)
-    checked = reflection.get("checked_claims", 0)
-    grounded = reflection.get("grounded_claims", 0)
-
-    summary_text = (
-        f"Evidence coverage: {coverage:.0%}  |  "
-        f"Confidence: {confidence:.0%}  |  "
-        f"Claims grounded: {grounded}/{checked}"
-    )
-    console.print(f"[dim]{summary_text}[/dim]")
-
-    flags = reflection.get("hallucination_flags", [])
-    if flags:
-        flag_table = Table(title="Hallucination Flags")
-        flag_table.add_column("Location", style="cyan")
-        flag_table.add_column("Severity", style="red")
-        flag_table.add_column("Claim", overflow="fold", max_width=60)
-        flag_table.add_column("Issue", overflow="fold", max_width=40)
-        for flag in flags:
-            severity_style = "red" if flag.get("severity") == "high" else "yellow"
-            flag_table.add_row(
-                str(flag.get("location", "")),
-                f"[{severity_style}]{flag.get('severity', '')}[/{severity_style}]",
-                str(flag.get("claim", ""))[:200],
-                str(flag.get("issue", "")),
-            )
-        console.print(flag_table)
-
-    issues = reflection.get("issues", [])
-    if issues:
-        console.print("[bold yellow]Issues:[/bold yellow]")
-        for issue in issues:
-            console.print(f"  [yellow]- {issue}[/yellow]")
-
-    suggestions = reflection.get("suggestions", [])
-    if suggestions:
-        console.print("[bold cyan]Suggestions:[/bold cyan]")
-        for suggestion in suggestions:
-            console.print(f"  [dim]- {suggestion}[/dim]")
+    """美化打印旅行规划结果（委托给 display 模块）。"""
+    display_plan_payload(payload)
 
 
 def _print_eval_report(
@@ -629,72 +591,64 @@ def _print_eval_report(
     metrics: AgentEvalMetrics,
     verbose: bool = False,
 ) -> None:
-    """Pretty-print agent eval results."""
+    """美化打印 Agent 评估结果。"""
     from rich.table import Table as RichTable
 
     m = report["metrics"]
     r = report["run"]
 
-    console.print(Panel.fit("Agent Eval Results", border_style="cyan"))
+    console.print(Panel.fit("Agent 评估结果", border_style="cyan"))
     console.print(
-        f"[dim]planner:[/dim] {r['planner']}  "
-        f"[dim]cases:[/dim] {r['total_cases']}  "
-        f"[dim]mode:[/dim] {r['mode']}"
+        f"[dim]规划器:[/dim] {r['planner']}  "
+        f"[dim]用例数:[/dim] {r['total_cases']}  "
+        f"[dim]模式:[/dim] {r['mode']}"
     )
 
-    table = RichTable(title="Quality Metrics")
-    table.add_column("Metric", style="cyan")
-    table.add_column("Value", style="green")
-    table.add_column("Status", style="yellow")
+    table = RichTable(title="质量指标")
+    table.add_column("指标", style="cyan")
+    table.add_column("值", style="green")
+    table.add_column("状态", style="yellow")
 
     def _status(rate: float, threshold: float = 0.8) -> str:
         if rate >= threshold:
-            return "[green]PASS[/green]"
-        return "[red]CHECK[/red]"
+            return "[green]通过[/green]"
+        return "[red]待检查[/red]"
 
-    table.add_row("Days Match Rate", f"{m['days_match_rate']:.2%}", _status(m["days_match_rate"]))
+    table.add_row("天数匹配率", f"{m['days_match_rate']:.2%}", _status(m["days_match_rate"]))
+    table.add_row("预算覆盖率", f"{m['budget_present_rate']:.2%}", _status(m["budget_present_rate"]))
+    table.add_row("风险提示率", f"{m['risk_notices_rate']:.2%}", _status(m["risk_notices_rate"]))
     table.add_row(
-        "Budget Present Rate",
-        f"{m['budget_present_rate']:.2%}",
-        _status(m["budget_present_rate"]),
-    )
-    table.add_row(
-        "Risk Notices Rate",
-        f"{m['risk_notices_rate']:.2%}",
-        _status(m["risk_notices_rate"]),
-    )
-    table.add_row(
-        "Evidence Source Coverage",
+        "证据来源覆盖率",
         f"{m['evidence_source_coverage']:.2%}",
         _status(m["evidence_source_coverage"]),
     )
     table.add_row(
-        "Low Confidence Handling",
+        "低置信度处理率",
         f"{m['low_confidence_handling_rate']:.2%}",
         _status(m["low_confidence_handling_rate"]),
     )
     table.add_row(
-        "Empty Result Handling",
+        "空结果处理率",
         f"{m['empty_result_handling_rate']:.2%}",
         _status(m["empty_result_handling_rate"]),
     )
     table.add_row(
-        "Validation Pass Rate",
+        "校验通过率",
         f"{m['validation_pass_rate']:.2%}",
         _status(m["validation_pass_rate"]),
     )
-    table.add_row("Avg Latency (ms)", f"{m['avg_latency_ms']:.2f}", "")
+    table.add_row("平均延迟 (ms)", f"{m['avg_latency_ms']:.2f}", "")
     console.print(table)
 
     if verbose and m.get("failures"):
-        console.print("\n[bold]Failures:[/bold]")
+        console.print("\n[bold]失败项:[/bold]")
         for failure in m["failures"]:
             console.print(f"  [red]- {failure}[/red]")
 
     if m.get("failures"):
         total_failures = len(m["failures"])
         console.print(
-            f"\n[yellow]{total_failures} failure(s) total. Use --verbose for details.[/yellow]"
+            f"\n[yellow]共 {total_failures} 项失败。使用 --verbose 查看详情。[/yellow]"
         )
         raise typer.Exit(code=1 if total_failures > 0 else 0)
 

@@ -1,4 +1,4 @@
-"""Pure RAG module for travel destination knowledge retrieval."""
+"""旅行目的地知识检索的纯 RAG 模块。"""
 
 from travel_agent.rag.api import (
     TravelRag,

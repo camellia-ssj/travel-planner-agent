@@ -1,7 +1,7 @@
-"""Memory long-term memory module — user profiles and trip history for the Travel Agent.
+"""Memory 长期记忆模块 — 旅行智能体的用户画像与历史行程。
 
-This module gives the Agent a "用户画像" (user portrait) by persisting trip
-records across sessions and aggregating them into preference profiles.
+此模块通过跨会话持久化行程记录并将其聚合为偏好画像，
+为智能体提供"用户画像"能力。
 """
 
 from travel_agent.memory.models import TripRecord, UserProfile

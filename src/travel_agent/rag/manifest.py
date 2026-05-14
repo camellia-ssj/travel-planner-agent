@@ -1,4 +1,4 @@
-"""Ingest manifest for document version tracking."""
+"""用于文档版本追踪的入库清单。"""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from travel_agent.rag.config import RagSettings
 
 @dataclass(frozen=True)
 class ManifestDocument:
-    """One indexed source document recorded in the manifest."""
+    """清单中记录的一个已索引源文档。"""
 
     source: str
     document_id: str
@@ -26,7 +26,7 @@ class ManifestDocument:
 
 
 class IngestManifest:
-    """Small JSON manifest persisted next to the local Chroma index."""
+    """持久化在本地 Chroma 索引旁边的小型 JSON 清单。"""
 
     def __init__(self, path: Path, documents: dict[str, ManifestDocument] | None = None) -> None:
         self.path = path

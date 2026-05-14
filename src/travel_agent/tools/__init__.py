@@ -1,4 +1,4 @@
-"""Deterministic tool functions for the travel agent."""
+"""旅行智能体的确定性工具函数。"""
 
 from travel_agent.tools.alternatives import suggest_alternatives
 from travel_agent.tools.budget import estimate_budget

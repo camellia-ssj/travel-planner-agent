@@ -1,4 +1,4 @@
-"""Runtime configuration for the LangChain + Chroma RAG module."""
+"""LangChain + Chroma RAG 模块的运行时配置。"""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from travel_agent.rag.models import QueryRewriteMode
 
 
 class EmbeddingProviderName(StrEnum):
-    """Supported embedding backend modes."""
+    """支持的嵌入后端模式。"""
 
     AUTO = "auto"
     QWEN = "qwen"
@@ -23,7 +23,7 @@ class EmbeddingProviderName(StrEnum):
 
 
 class RetrievalMode(StrEnum):
-    """Supported retrieval strategies."""
+    """支持的检索策略。"""
 
     VECTOR = "vector"
     KEYWORD = "keyword"
@@ -31,7 +31,7 @@ class RetrievalMode(StrEnum):
 
 
 class KeywordTokenizerName(StrEnum):
-    """Supported keyword tokenizer strategies for BM25 retrieval."""
+    """BM25 检索支持的关键词分词器策略。"""
 
     AUTO = "auto"
     BUILTIN = "builtin"
@@ -39,7 +39,7 @@ class KeywordTokenizerName(StrEnum):
 
 
 class RerankerName(StrEnum):
-    """Supported reranker strategies."""
+    """支持的重排序器策略。"""
 
     KEYWORD = "keyword"
     CROSS_ENCODER = "cross-encoder"
@@ -47,7 +47,7 @@ class RerankerName(StrEnum):
 
 
 class RagSettings(BaseSettings):
-    """Settings loaded from environment variables and `.env`."""
+    """从环境变量和 `.env` 文件加载的设置。"""
 
     model_config = SettingsConfigDict(
         env_file=".env",

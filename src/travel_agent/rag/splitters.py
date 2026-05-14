@@ -1,4 +1,4 @@
-"""LangChain text splitting utilities."""
+"""LangChain 文本分割工具。"""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from travel_agent.rag.config import RagSettings
 
 
 def build_text_splitter(settings: RagSettings) -> RecursiveCharacterTextSplitter:
-    """Build the project-standard LangChain text splitter."""
+    """构建项目标准的 LangChain 文本分割器。"""
 
     return RecursiveCharacterTextSplitter(
         chunk_size=settings.chunk_size,

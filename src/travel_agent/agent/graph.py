@@ -1,4 +1,4 @@
-"""LangGraph assembly for the travel agent MVP."""
+"""旅行智能体MVP的LangGraph图组装。"""
 
 from __future__ import annotations
 
@@ -22,18 +22,17 @@ from travel_agent.agent.nodes import (
 from travel_agent.agent.planner import TravelPlanner
 from travel_agent.agent.state import TravelAgentState
 
-# langchain_core._api.deprecation registers a ``simplefilter("default")``
-# for LangChainPendingDeprecationWarning at position 0 during its first
-# import.  We trigger that import first, then insert our own "ignore" at
-# position 0 so it wins when the actual langgraph modules load.
+# langchain_core._api.deprecation 在首次导入时会在位置0注册一个
+# 针对 LangChainPendingDeprecationWarning 的 ``simplefilter("default")``。
+# 我们先触发该导入，然后在位置0插入我们自己的 "ignore"，
+# 这样当真正的 langgraph 模块加载时它就会生效。
 import langchain_core._api.deprecation  # noqa: E402,F401
 
 warnings.simplefilter("ignore")
 
 from langgraph.graph import END, START, StateGraph  # noqa: E402
 
-# Restore the default filter so our blanket "ignore" doesn't leak to
-# unrelated code.
+# 恢复默认过滤器，防止我们的全局 "ignore" 泄露到无关代码中。
 warnings.filters.pop(0)
 
 DEFAULT_MAX_RETRIES = 1
@@ -44,11 +43,10 @@ def _after_reflect(
     max_retries: int = DEFAULT_MAX_RETRIES,
     has_memory: bool = False,
 ) -> str:
-    """Decide whether to retry (supplementary retrieval + re-plan) or finish.
+    """决定是重试（补充检索 + 重新规划）还是结束。
 
-    Returns ``"retry"`` when the reflection report indicates the plan
-    needs more evidence and we haven't exhausted the retry budget.
-    Otherwise returns the appropriate terminal node.
+    当审查报告显示计划需要更多证据且尚未耗尽重试次数时，
+    返回 ``"retry"``。否则返回相应的终止节点。
     """
     report = state.get("reflection_report")
     retry_count = state.get("reflection_retry_count", 0)
@@ -71,19 +69,18 @@ def build_travel_agent_graph(
     reflection_service: object | None = None,
     max_reflection_retries: int = DEFAULT_MAX_RETRIES,
 ) -> Any:
-    """Build and compile the deterministic MVP travel agent graph.
+    """构建并编译确定性MVP旅行智能体图。
 
-    When *memory_service* is provided, the graph loads the user profile
-    before planning and saves the trip to long-term memory after validation.
+    提供 *memory_service* 时，图会在规划前加载用户画像，
+    并在校验后将行程保存到长期记忆中。
 
-    When *reflection_service* (a ``ReflectionService``) is provided, the
-    reflection node uses an LLM-based fact-checker instead of pure
-    deterministic text-overlap.  Without it the node still works with
-    deterministic fallback.
+    提供 *reflection_service*（一个 ``ReflectionService``）时，
+    审查节点使用基于LLM的事实检查器，而非纯确定性文本重叠匹配。
+    不提供时，节点仍可通过确定性回退方案正常工作。
 
-    *max_reflection_retries* controls how many times the graph will loop
-    back through retrieval → tools → plan → validate → reflect when the
-    reflection report fails.  Default is 1 (one retry).
+    *max_reflection_retries* 控制当审查报告失败时，图在
+    检索 → 工具 → 规划 → 校验 → 审查 之间循环重试的次数。
+    默认值为 1（一次重试）。
     """
 
     graph = StateGraph(TravelAgentState)
@@ -119,7 +116,7 @@ def build_travel_agent_graph(
             lambda state: save_trip_memory_node(state, memory_service),
         )
 
-    # ── edges ──────────────────────────────────────────────────────────
+    # ── 边 ──────────────────────────────────────────────────────────
     if has_memory:
         graph.add_edge(START, "load_user_profile")
         graph.add_edge("load_user_profile", "parse_user_request")
@@ -131,7 +128,7 @@ def build_travel_agent_graph(
     graph.add_edge("generate_plan", "validate_plan")
     graph.add_edge("validate_plan", "reflect")
 
-    # Conditional edge: reflect → retry (loop) or proceed
+    # 条件边：审查 → 重试（循环）或继续
     graph.add_conditional_edges(
         "reflect",
         lambda state: _after_reflect(
@@ -157,22 +154,22 @@ def build_travel_agent_resume_graph(
     reflection_service: object | None = None,
     max_reflection_retries: int = DEFAULT_MAX_RETRIES,
 ) -> Any:
-    """Build and compile a graph that resumes checkpointed state and replans.
+    """构建并编译一个恢复检查点状态并重新规划的图。
 
-    When *rag_service* is provided a ``retrieve_evidence`` node is inserted
-    after ``apply_feedback`` so that destination / day changes in the
-    feedback trigger fresh RAG retrieval.
+    提供 *rag_service* 时，会在 ``apply_feedback`` 之后插入
+    ``retrieve_evidence`` 节点，以便反馈中的目的地/天数变更
+    触发新的RAG检索。
 
-    See ``build_travel_agent_graph`` for details on *reflection_service*
-    and *max_reflection_retries*.  When *rag_service* is ``None``,
-    reflection retries are disabled since no retrieval node exists.
+    关于 *reflection_service* 和 *max_reflection_retries* 的详细说明，
+    请参见 ``build_travel_agent_graph``。
+    当 *rag_service* 为 ``None`` 时，由于没有检索节点可供回退，审查重试将被禁用。
     """
 
     graph = StateGraph(TravelAgentState)
 
     has_memory = memory_service is not None
 
-    # Disable retry when there is no retrieval node to loop back to.
+    # 当没有可回退的检索节点时，禁用重试。
     if rag_service is None:
         max_reflection_retries = 0
 
@@ -206,7 +203,7 @@ def build_travel_agent_resume_graph(
             lambda state: save_trip_memory_node(state, memory_service),
         )
 
-    # ── edges ──────────────────────────────────────────────────────────
+    # ── 边 ──────────────────────────────────────────────────────────
     if has_memory:
         graph.add_edge(START, "load_user_profile")
         graph.add_edge("load_user_profile", "apply_feedback")
@@ -221,7 +218,7 @@ def build_travel_agent_resume_graph(
     graph.add_edge("generate_plan", "validate_plan")
     graph.add_edge("validate_plan", "reflect")
 
-    # Conditional edge: reflect → retry (loop) or proceed
+    # 条件边：审查 → 重试（循环）或继续
     graph.add_conditional_edges(
         "reflect",
         lambda state: _after_reflect(

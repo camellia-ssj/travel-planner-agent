@@ -1,4 +1,4 @@
-"""Metadata helpers for travel RAG knowledge documents."""
+"""旅行 RAG 知识文档的元数据辅助工具。"""
 
 from __future__ import annotations
 
@@ -63,7 +63,7 @@ _H2_HEADING_RE = re.compile(r"^##(?!#)\s+(.+?)\s*$", flags=re.MULTILINE)
 
 
 class TravelDocumentMetadata(BaseModel):
-    """Validated metadata schema persisted with every destination document."""
+    """与每个目的地文档一起持久化的经过验证的元数据模式。"""
 
     model_config = ConfigDict(extra="ignore")
 
@@ -101,7 +101,7 @@ class TravelDocumentMetadata(BaseModel):
 
 
 def split_markdown_sections(document: Document) -> list[Document]:
-    """Split one Markdown document into second-level heading sections."""
+    """将一个 Markdown 文档按二级标题拆分为章节。"""
 
     text = document.page_content
     matches = list(_H2_HEADING_RE.finditer(text))
@@ -140,7 +140,7 @@ def split_markdown_sections(document: Document) -> list[Document]:
 
 
 def split_documents_by_markdown_section(documents: list[Document]) -> list[Document]:
-    """Split loaded documents into section documents before chunking."""
+    """在分块之前将加载的文档拆分为章节文档。"""
 
     section_documents: list[Document] = []
     for document in documents:
@@ -159,7 +159,7 @@ def split_documents_by_markdown_section(documents: list[Document]) -> list[Docum
 
 
 def complete_document_metadata(metadata: dict[str, object], destination: str) -> dict[str, object]:
-    """Return validated document metadata with all travel schema fields present."""
+    """返回经过验证的文档元数据，包含所有旅行模式字段。"""
 
     normalized = dict(metadata)
     normalized["destination"] = destination
@@ -172,7 +172,7 @@ def complete_document_metadata(metadata: dict[str, object], destination: str) ->
 
 
 def ensure_chunk_metadata(metadata: dict[str, object]) -> None:
-    """Ensure every chunk exposes the phase-one metadata schema keys."""
+    """确保每个文档块都暴露第一阶段元数据模式的所有键。"""
 
     metadata.setdefault("destination", "")
     metadata.setdefault("city", metadata.get("destination", ""))

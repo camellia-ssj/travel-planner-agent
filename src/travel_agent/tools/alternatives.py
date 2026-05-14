@@ -1,4 +1,4 @@
-"""Deterministic alternative suggestion tool."""
+"""确定性备选方案推荐工具。"""
 
 from __future__ import annotations
 
@@ -19,12 +19,12 @@ def suggest_alternatives(
     evidence: EvidenceBundle,
     crowd_assessment: CrowdRiskAssessment | None = None,
 ) -> AlternativePlan:
-    """Generate alternative suggestions based on evidence and crowd risk."""
+    """根据证据和拥挤风险评估生成备选方案建议。"""
 
     suggestions: list[AlternativeSuggestion] = []
     weather_parts: list[str] = []
 
-    # Collect high-risk POI names from crowd assessment
+    # 从拥挤评估中收集高风险的POI名称
     high_risk_pois = set()
     if crowd_assessment:
         for poi_risk in crowd_assessment.poi_risks:

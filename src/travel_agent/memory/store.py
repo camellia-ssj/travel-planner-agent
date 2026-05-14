@@ -1,4 +1,4 @@
-"""SQLite-backed persistent storage for user profiles and trip memories."""
+"""基于 SQLite 的用户画像与行程记忆持久化存储。"""
 
 from __future__ import annotations
 
@@ -11,12 +11,12 @@ from travel_agent.memory.models import TripRecord, UserProfile
 
 
 class MemoryStore:
-    """Persistent long-term memory backed by SQLite.
+    """基于 SQLite 的持久化长期记忆存储。
 
-    Stores trip records and aggregated user profiles so the Agent can
-    build a "user portrait" across sessions. Thread-safe via WAL mode.
+    存储行程记录和聚合用户画像，使智能体能够跨会话构建"用户画像"。
+    通过 WAL 模式实现线程安全。
 
-    Usage::
+    用法::
 
         store = MemoryStore(Path("data/user_memory.sqlite"))
         store.save_trip(TripRecord(...))
@@ -36,11 +36,11 @@ class MemoryStore:
         self._conn.close()
 
     # ------------------------------------------------------------------
-    # Trip records
+    # 行程记录
     # ------------------------------------------------------------------
 
     def save_trip(self, record: TripRecord) -> None:
-        """Persist a trip record and update the user profile."""
+        """持久化一条行程记录并更新用户画像。"""
         self._conn.execute(
             """INSERT INTO trip_memories
                (memory_id, user_id, thread_id, destination, days, audience,
@@ -63,7 +63,7 @@ class MemoryStore:
         self._rebuild_profile(record.user_id)
 
     def list_user_trips(self, user_id: str, limit: int = 20) -> list[TripRecord]:
-        """Return recent trips for a user, newest first."""
+        """返回某用户的近期行程记录，按时间倒序排列。"""
         rows = self._conn.execute(
             """SELECT * FROM trip_memories
                WHERE user_id = ?
@@ -74,11 +74,11 @@ class MemoryStore:
         return [_row_to_trip(row) for row in rows]
 
     # ------------------------------------------------------------------
-    # User profile
+    # 用户画像
     # ------------------------------------------------------------------
 
     def get_profile(self, user_id: str) -> UserProfile:
-        """Return the user profile, creating a blank one if not found."""
+        """返回用户画像，如果不存在则创建一个空白画像。"""
         row = self._conn.execute(
             "SELECT * FROM user_profiles WHERE user_id = ?", (user_id,)
         ).fetchone()
@@ -87,7 +87,7 @@ class MemoryStore:
         return _row_to_profile(row)
 
     # ------------------------------------------------------------------
-    # Internal
+    # 内部方法
     # ------------------------------------------------------------------
 
     def _migrate(self) -> None:
@@ -122,7 +122,7 @@ class MemoryStore:
         self._conn.commit()
 
     def _rebuild_profile(self, user_id: str) -> None:
-        """Aggregate all trip records into an up-to-date user profile."""
+        """将所有行程记录聚合为最新的用户画像。"""
         rows = self._conn.execute(
             """SELECT destination, days, audience, budget_preference
                FROM trip_memories
@@ -151,14 +151,14 @@ class MemoryStore:
             bp = row["budget_preference"]
             budget_votes[bp] = budget_votes.get(bp, 0) + 1
 
-        # Top destinations by frequency
+        # 按频率排序的热门目的地
         ranked_dests = sorted(dest_count.items(), key=lambda x: (-x[1], x[0]))
         preferred = [d for d, _ in ranked_dests[:5]]
 
-        # Most common budget
+        # 最常用的预算等级
         top_budget = max(budget_votes, key=budget_votes.get) if budget_votes else "standard"
 
-        # Top audience types
+        # 最常用的出行类型
         aud_count: dict[str, int] = {}
         for a in audience_all:
             aud_count[a] = aud_count.get(a, 0) + 1
@@ -167,7 +167,7 @@ class MemoryStore:
         now = datetime.now(UTC).isoformat()
         last_dest = destinations[0] if destinations else ""
 
-        # Build a simple Chinese summary for the planner
+        # 为规划器构建简洁的偏好摘要
         summary_parts: list[str] = []
         if preferred:
             summary_parts.append(f"偏好目的地: {', '.join(preferred)}")
@@ -198,7 +198,7 @@ class MemoryStore:
             updated_at=now,
         )
 
-        # Upsert
+        # 存在则更新，不存在则插入
         existing = self._conn.execute(
             "SELECT user_id FROM user_profiles WHERE user_id = ?", (user_id,)
         ).fetchone()
@@ -246,7 +246,7 @@ class MemoryStore:
 
 
 # ------------------------------------------------------------------
-# Row deserialization helpers
+# 行数据反序列化辅助函数
 # ------------------------------------------------------------------
 
 

@@ -1,4 +1,4 @@
-"""LangChain document loading for destination knowledge files."""
+"""目的地知识文件的 LangChain 文档加载。"""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ SUPPORTED_DOCUMENT_EXTENSIONS = MARKDOWN_EXTENSIONS | TEXT_EXTENSIONS | PDF_EXTE
 
 
 def discover_document_files(path: Path) -> list[Path]:
-    """Return supported knowledge files under a file or directory path."""
+    """返回文件或目录路径下的受支持知识文件。"""
 
     if path.is_file():
         return [path] if path.suffix.lower() in SUPPORTED_DOCUMENT_EXTENSIONS else []
@@ -34,7 +34,7 @@ def discover_document_files(path: Path) -> list[Path]:
 
 
 def discover_markdown_files(path: Path) -> list[Path]:
-    """Return Markdown files under a file or directory path."""
+    """返回文件或目录路径下的 Markdown 文件。"""
 
     if path.is_file():
         return [path] if path.suffix.lower() in MARKDOWN_EXTENSIONS else []
@@ -48,7 +48,7 @@ def discover_markdown_files(path: Path) -> list[Path]:
 
 
 def load_documents(path: Path, destination: str | None = None) -> list[Document]:
-    """Load supported knowledge documents and enrich metadata."""
+    """加载受支持的知识文档并丰富元数据。"""
 
     files = discover_document_files(path)
     if not files:
@@ -60,7 +60,7 @@ def load_documents(path: Path, destination: str | None = None) -> list[Document]
 
 
 def load_markdown_documents(path: Path, destination: str | None = None) -> list[Document]:
-    """Load Markdown documents with LangChain loaders and enrich metadata."""
+    """使用 LangChain 加载器加载 Markdown 文档并丰富元数据。"""
 
     files = discover_markdown_files(path)
     if not files:
@@ -77,7 +77,7 @@ def _enrich_documents(
     root: Path,
     destination: str | None,
 ) -> list[Document]:
-    """Populate normalized travel RAG metadata on loaded documents."""
+    """在加载的文档上填充标准化的旅行 RAG 元数据。"""
 
     for document in documents:
         source = str(document.metadata.get("source", ""))
