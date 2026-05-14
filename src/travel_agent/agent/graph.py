@@ -5,20 +5,6 @@ from __future__ import annotations
 import warnings
 from typing import Any
 
-# langchain_core._api.deprecation registers a ``simplefilter("default")``
-# for LangChainPendingDeprecationWarning at position 0 during its first
-# import.  We trigger that import first, then insert our own "ignore" at
-# position 0 so it wins when the actual langgraph modules load.
-import langchain_core._api.deprecation  # noqa: F401
-
-warnings.simplefilter("ignore")
-
-from langgraph.graph import END, START, StateGraph
-
-# Restore the default filter so our blanket "ignore" doesn't leak to
-# unrelated code.
-warnings.filters.pop(0)
-
 from travel_agent.agent.nodes import (
     EvidenceService,
     MemoryService,
@@ -35,6 +21,20 @@ from travel_agent.agent.nodes import (
 )
 from travel_agent.agent.planner import TravelPlanner
 from travel_agent.agent.state import TravelAgentState
+
+# langchain_core._api.deprecation registers a ``simplefilter("default")``
+# for LangChainPendingDeprecationWarning at position 0 during its first
+# import.  We trigger that import first, then insert our own "ignore" at
+# position 0 so it wins when the actual langgraph modules load.
+import langchain_core._api.deprecation  # noqa: E402,F401
+
+warnings.simplefilter("ignore")
+
+from langgraph.graph import END, START, StateGraph  # noqa: E402
+
+# Restore the default filter so our blanket "ignore" doesn't leak to
+# unrelated code.
+warnings.filters.pop(0)
 
 DEFAULT_MAX_RETRIES = 1
 
@@ -134,7 +134,9 @@ def build_travel_agent_graph(
     # Conditional edge: reflect → retry (loop) or proceed
     graph.add_conditional_edges(
         "reflect",
-        lambda state: _after_reflect(state, max_retries=max_reflection_retries, has_memory=has_memory),
+        lambda state: _after_reflect(
+            state, max_retries=max_reflection_retries, has_memory=has_memory
+        ),
         {
             "retry": "retrieve_evidence",
             "save_trip_memory": "save_trip_memory" if has_memory else END,
@@ -222,7 +224,9 @@ def build_travel_agent_resume_graph(
     # Conditional edge: reflect → retry (loop) or proceed
     graph.add_conditional_edges(
         "reflect",
-        lambda state: _after_reflect(state, max_retries=max_reflection_retries, has_memory=has_memory),
+        lambda state: _after_reflect(
+            state, max_retries=max_reflection_retries, has_memory=has_memory
+        ),
         {
             "retry": "retrieve_evidence",
             "save_trip_memory": "save_trip_memory" if has_memory else END,

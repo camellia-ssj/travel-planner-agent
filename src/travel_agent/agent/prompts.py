@@ -126,7 +126,8 @@ def build_reflection_prompt(
     )
     plan_text = _format_plan_for_review(plan)
     prompt = (
-        "Review the following travel plan for factual accuracy against the provided RAG evidence.\n\n"
+        "Review the following travel plan for factual accuracy against the provided RAG"
+        " evidence.\n\n"
         f"=== TRAVEL PLAN ===\n{plan_text}\n\n"
         f"=== RAG EVIDENCE ===\n{evidence_text or 'No evidence retrieved.'}\n\n"
     )
@@ -141,10 +142,12 @@ def build_reflection_prompt(
         "Instructions:\n"
         "- Identify every claim in the plan that is NOT supported by the evidence.\n"
         "- Flag invented POI names, fabricated prices, unsupported crowd claims.\n"
-        "- Check that activities match the destination (e.g., no Beijing POIs in a Hangzhou plan).\n"
+        "- Check that activities match the destination"
+        " (e.g., no Beijing POIs in a Hangzhou plan).\n"
         "- Cross-check budget items against tool_budget results when available.\n"
         "- Cross-check risk notices against tool_crowd_risk results when available.\n"
-        "- For each flagged claim, specify: location, claim text, why it's flagged, severity (high/medium/low).\n"
+        "- For each flagged claim, specify: location, claim text, why it's flagged,"
+        " severity (high/medium/low).\n"
         "- Compute evidence_coverage (0.0-1.0): fraction of plan claims grounded in evidence.\n"
         "- Compute confidence_score (0.0-1.0): overall confidence after review.\n"
         "- Provide actionable suggestions for improving the plan.\n"

@@ -418,11 +418,31 @@ conda run -n Agent python -m pip install -e ".[dev]"
 
 ### Conda Agent 环境开发说明
 
+- **环境名称**：`Agent`（推荐使用此名称创建 conda 环境）
 - 推荐所有命令都在仓库根目录执行，并统一使用 `conda run -n Agent ...`
 - 仓库根目录内已提供开发期源码导入兼容层，未安装 editable package 时也可以直接运行 `python -m travel_agent...`
 - 如果你需要 `travel-agent` / `travel-rag` 这两个 console script，请先执行 `pip install -e .`
 - `pytest` 已通过 `pytest.ini` 将临时目录固定到 `.tmp_pytest`，无需手动传 `--basetemp`
 - 在 Windows PowerShell 下复制环境文件建议使用 `Copy-Item .env.example .env`
+
+**创建并配置 Agent 环境**：
+
+```powershell
+# 创建 conda 环境（Python >= 3.11）
+conda create -n Agent python=3.11 -y
+
+# 激活环境
+conda activate Agent
+
+# 安装核心依赖
+pip install -e .
+
+# 安装开发依赖（含 ruff、pytest、mypy）
+pip install -e ".[dev]"
+
+# 推荐：安装中文分词支持
+pip install -e ".[keyword]"
+```
 
 ### 5 分钟 Demo（无需 API Key）
 
@@ -633,13 +653,29 @@ conda run -n Agent python -m pytest tests\test_memory.py -q -p no:cacheprovider
 
 ### 代码质量
 
+项目使用 [ruff](https://docs.astral.sh/ruff/) 进行代码检查，配置见 `pyproject.toml` 中的 `[tool.ruff]` 段。
+
 ```powershell
-# Lint
+# 全量 Lint 检查
 conda run -n Agent python -m ruff check src tests
 
-# Compile check
+# 自动修复可修复的问题
+conda run -n Agent python -m ruff check src tests --fix
+
+# 仅检查特定文件
+conda run -n Agent python -m ruff check src/travel_agent/agent/graph.py
+
+# 类型检查（mypy）
+conda run -n Agent python -m mypy src/travel_agent tests
+
+# Compile 检查（无 .pyc 残留验证）
 conda run -n Agent python -m compileall src tests
 ```
+
+**Ruff 启用的规则**：`E`（pycodestyle）、`F`（PyFlakes）、`I`（isort 导入排序）、`UP`（pyupgrade）、`B`（flake8-bugbear）、`SIM`（flake8-simplify）
+
+**已知例外**：
+- `src/travel_agent/agent/graph.py` — 由于需要在 `langgraph` 导入前执行 `warnings.simplefilter("ignore")` 来抑制 LangChain 弃用警告，文件级豁免了 `I001`（导入排序）规则（`per-file-ignores`）
 
 ### RAG 评测
 

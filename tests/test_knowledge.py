@@ -34,7 +34,7 @@ class TestDestinationAliases:
         assert DESTINATION_ALIASES["paris"] == "Paris"
 
     def test_display_name_round_trip(self) -> None:
-        for alias, canonical in DESTINATION_ALIASES.items():
+        for _alias, canonical in DESTINATION_ALIASES.items():
             if canonical in DESTINATION_DISPLAY_NAMES:
                 assert DESTINATION_DISPLAY_NAMES[canonical] in DESTINATION_ALIASES
 
