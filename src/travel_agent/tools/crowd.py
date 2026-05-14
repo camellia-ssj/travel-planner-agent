@@ -1,4 +1,4 @@
-"""Deterministic crowd risk assessment tool."""
+"""确定性拥挤风险评估工具。"""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ _MEDIUM_KEYWORDS = {"适中", "一般", "较多"}
 
 
 def _extract_pois(content: str) -> list[str]:
-    """Extract POI names by splitting on connectors first, then regex matching."""
+    """先通过连接词分割文本，再使用正则表达式提取POI名称。"""
     seen: set[str] = set()
     pois: list[str] = []
     for segment in _CONNECTOR_RE.split(content):
@@ -45,7 +45,7 @@ def assess_crowd_risk(
     evidence: EvidenceBundle,
     is_weekend_holiday: bool = False,
 ) -> CrowdRiskAssessment:
-    """Assess crowd risk for a destination based on RAG evidence."""
+    """根据RAG证据评估目的地的拥挤风险。"""
 
     crowd_results = [
         r for r in evidence.results

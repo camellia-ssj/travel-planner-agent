@@ -16,7 +16,7 @@ def _assert_embedding_vector(test_case: unittest.TestCase, vector: list[float]) 
 class RealEmbeddingVerificationTest(unittest.TestCase):
     @unittest.skipUnless(
         os.getenv("TRAVEL_RAG_VERIFY_BGE_M3") == "1",
-        "Set TRAVEL_RAG_VERIFY_BGE_M3=1 to download and verify BAAI/bge-m3.",
+        "设置 TRAVEL_RAG_VERIFY_BGE_M3=1 以下载并验证 BAAI/bge-m3。",
     )
     def test_bge_m3_sentence_transformers_embedding_smoke(self) -> None:
         embeddings = build_embeddings(
@@ -35,7 +35,7 @@ class RealEmbeddingVerificationTest(unittest.TestCase):
 
     @unittest.skipUnless(
         os.getenv("TRAVEL_RAG_VERIFY_QWEN") == "1" and os.getenv("DASHSCOPE_API_KEY"),
-        "Set TRAVEL_RAG_VERIFY_QWEN=1 and DASHSCOPE_API_KEY to verify text-embedding-v4.",
+        "设置 TRAVEL_RAG_VERIFY_QWEN=1 和 DASHSCOPE_API_KEY 以验证 text-embedding-v4。",
     )
     def test_qwen_text_embedding_v4_smoke(self) -> None:
         embeddings = build_embeddings(RagConfig(embedding_provider=EmbeddingProviderName.QWEN))
@@ -46,7 +46,7 @@ class RealEmbeddingVerificationTest(unittest.TestCase):
 
     @unittest.skipUnless(
         os.getenv("TRAVEL_RAG_VERIFY_OPENAI") == "1" and os.getenv("OPENAI_API_KEY"),
-        "Set TRAVEL_RAG_VERIFY_OPENAI=1 and OPENAI_API_KEY to verify OpenAI embeddings.",
+        "设置 TRAVEL_RAG_VERIFY_OPENAI=1 和 OPENAI_API_KEY 以验证 OpenAI embeddings。",
     )
     def test_openai_embedding_smoke(self) -> None:
         embeddings = build_embeddings(RagConfig(embedding_provider=EmbeddingProviderName.OPENAI))

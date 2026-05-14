@@ -1,4 +1,4 @@
-"""Keyword retrieval for travel RAG chunks."""
+"""旅行 RAG 文档块的关键词检索。"""
 
 from __future__ import annotations
 
@@ -27,10 +27,10 @@ def bm25_search(
     tokenizer: KeywordTokenizerName | str = KeywordTokenizerName.AUTO,
     user_dict: str | Path | None = None,
 ) -> list[tuple[Document, float]]:
-    """Return BM25-ranked documents for a query.
+    """返回查询的 BM25 排序文档。
 
-    The default tokenizer uses jieba when it is installed, while keeping a
-    dependency-free built-in tokenizer as a fallback for tests and simple demos.
+    默认分词器在 jieba 已安装时使用它，同时保留一个无依赖的内置分词器
+    作为测试和简单演示的回退。
     """
 
     if top_k <= 0 or not documents:
@@ -59,7 +59,7 @@ def bm25_search(
 
 @dataclass
 class BM25Index:
-    """In-memory BM25 index reused across keyword and hybrid retrieval calls."""
+    """跨关键词和混合检索调用重用的内存 BM25 索引。"""
 
     documents: list[Document]
     document_terms: list[list[str]]
@@ -166,7 +166,20 @@ def _build_tokenizer(
 
 def _jieba_tokenizer(user_dict: str | Path | None) -> Callable[[str], list[str]] | None:
     try:
-        jieba = importlib.import_module("jieba")
+        import io
+        import sys
+        import warnings as _warnings
+
+        # jieba 在导入时会向 stdout 打印加载信息并发出 pkg_resources
+        # 弃用警告 —— 在导入期间抑制这两者
+        _old_stdout = sys.stdout
+        sys.stdout = io.StringIO()
+        _warnings.filterwarnings("ignore", category=UserWarning, module="jieba")
+        try:
+            jieba = importlib.import_module("jieba")
+        finally:
+            sys.stdout = _old_stdout
+            _warnings.resetwarnings()
     except ImportError:
         return None
 
@@ -175,6 +188,10 @@ def _jieba_tokenizer(user_dict: str | Path | None) -> Callable[[str], list[str]]
         if dictionary.exists() and dictionary not in _USER_DICT_CACHE:
             jieba.load_userdict(str(dictionary))
             _USER_DICT_CACHE.add(dictionary)
+
+    # 在分词期间抑制 jieba 的 INFO 日志消息
+    import logging
+    logging.getLogger("jieba").setLevel(logging.WARNING)
 
     def tokenize(text: str) -> list[str]:
         normalized = text.lower()

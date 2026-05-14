@@ -1,4 +1,4 @@
-"""Tests for the Memory long-term memory module."""
+"""Memory 长期记忆模块的测试。"""
 
 from __future__ import annotations
 
@@ -244,7 +244,7 @@ class TestMemoryStore:
 
 
 class TestMemoryGraphIntegration:
-    """Tests that the graph integrates memory correctly."""
+    """测试图是否正确集成记忆模块。"""
 
     def test_graph_with_memory_store_loads_profile(self) -> None:
         import uuid

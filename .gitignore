@@ -35,6 +35,7 @@ site/
 *.local
 
 # Local app data, vector stores, and databases
+data/*.sqlite
 data/*.sqlite3
 data/*.db
 data/chroma/

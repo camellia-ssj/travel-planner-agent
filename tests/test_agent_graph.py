@@ -168,7 +168,7 @@ def test_agent_graph_can_invoke_with_mock_rag_service() -> None:
 
 
 def test_parse_user_request_days_override_zero_is_rejected() -> None:
-    """days_override=0 must raise a Pydantic validation error, not silently clamp."""
+    """days_override=0 必须抛出 Pydantic 验证错误，而不是静默截断。"""
     import pytest as pt
     from pydantic import ValidationError
 
@@ -180,7 +180,7 @@ def test_parse_user_request_days_override_zero_is_rejected() -> None:
 
 
 def test_parse_user_request_days_override_none_uses_parsed() -> None:
-    """When days_override is absent (None), parsed_days from question is used."""
+    """当 days_override 未提供（None）时，使用从问题中解析出的 parsed_days。"""
     rag_service = MockRagService()
     graph = build_travel_agent_graph(rag_service)
 
@@ -255,7 +255,7 @@ def test_langchain_planner_falls_back_when_llm_fails() -> None:
 
 
 def test_cli_plan_rejects_negative_days(monkeypatch) -> None:
-    """CLI --days -2 must exit non-zero, not silently clamp to 1."""
+    """CLI --days -2 必须以非零退出码退出，而不是静默截断为 1。"""
     runner = CliRunner()
     result = runner.invoke(
         app,
@@ -265,7 +265,7 @@ def test_cli_plan_rejects_negative_days(monkeypatch) -> None:
 
 
 def test_run_plan_rejects_days_zero() -> None:
-    """run_plan with days=0 must raise ValueError, not silently clamp."""
+    """run_plan 在 days=0 时必须抛出 ValueError，而不是静默截断。"""
     import pytest as pt
 
     rag_service = MockRagService()
@@ -336,7 +336,7 @@ def test_checkpoint_resume_updates_plan_for_same_thread_id(tmp_path) -> None:
     assert resumed_payload["thread_id"] == thread_id
     assert resumed_payload["original_user_request"] == "杭州亲子三天"
     assert resumed_payload["user_feedback"] == ["第二天少走路，增加雨天备选"]
-    # Feedback does NOT change destination/days/budget → request stays the same
+    # 反馈不改变目的地/天数/预算 → request 保持不变
     assert resumed_payload["request"]["destination"] == "Hangzhou"
     assert resumed_payload["plan"]["days"] == 3
     assert resumed_payload["request"]["budget_preference"] == "standard"
@@ -383,7 +383,7 @@ def test_agent_cli_plan_json_uses_mock_rag_service(monkeypatch) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Tool integration tests
+# 工具集成测试
 # ---------------------------------------------------------------------------
 
 
@@ -410,12 +410,12 @@ def test_budget_tool_overrides_rule_based_planner() -> None:
     plan = result["plan"]
     budget = result["tool_budget"]
 
-    # budget_items should come from tool_budget, not the hardcoded 3-category template
+    # budget_items 应来自 tool_budget，而不是硬编码的 3 分类模板
     assert len(plan.budget_items) == 5  # accommodation, dining, transport, tickets, total
     categories = [item.category for item in plan.budget_items]
     assert "accommodation" in categories
     assert "total" in categories
-    # The total item note should contain the tool's deterministic total
+    # 总计项的备注应包含工具的确定性总额
     total_item = next(item for item in plan.budget_items if item.category == "total")
     assert f"{budget.total:.0f}" in total_item.note
 
@@ -451,12 +451,12 @@ def test_resume_graph_runs_tool_node() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Resume with parameter changes — verify feedback parsing + re-retrieval
+# 带参数变更的恢复测试 — 验证反馈解析 + 重新检索
 # ---------------------------------------------------------------------------
 
 
 def test_resume_with_destination_change_re_retrieves_evidence(tmp_path) -> None:
-    """When feedback changes destination, request is updated and evidence is re-fetched."""
+    """当反馈更改目的地时，request 应更新且证据应重新获取。"""
     rag_service = MockRagService()
     checkpoint_path = tmp_path / "agent.sqlite"
     thread_id = "resume-dest-change"
@@ -479,12 +479,12 @@ def test_resume_with_destination_change_re_retrieves_evidence(tmp_path) -> None:
         checkpoint_path=checkpoint_path,
     )
 
-    # Evidence was re-retrieved: at least one new call with the new destination
+    # 证据已重新检索：至少有一次使用新目的地的调用
     assert len(rag_service.calls) > call_count_before
     new_calls = rag_service.calls[call_count_before:]
     destinations = {call["destination"] for call in new_calls}
     assert "Beijing" in destinations
-    # Request was updated
+    # request 已更新
     assert resumed["request"]["destination"] == "Beijing"
     assert resumed["plan"]["destination"] == "Beijing"
 
@@ -518,7 +518,7 @@ def test_resume_with_english_feedback_updates_request(tmp_path) -> None:
 
 
 def test_resume_with_days_change_updates_request(tmp_path) -> None:
-    """When feedback changes the number of days, request.days is updated."""
+    """当反馈更改天数时，request.days 应更新。"""
     rag_service = MockRagService()
     checkpoint_path = tmp_path / "agent.sqlite"
     thread_id = "resume-days-change"
@@ -542,12 +542,12 @@ def test_resume_with_days_change_updates_request(tmp_path) -> None:
 
     assert resumed["request"]["days"] == 5
     assert resumed["plan"]["days"] == 5
-    # Destination unchanged
+    # 目的地未变
     assert resumed["request"]["destination"] == "Hangzhou"
 
 
 def test_resume_with_days_change_to_one(tmp_path) -> None:
-    """Resume can change days to 1 — regression test for new_days > 1 guard bug."""
+    """恢复时可将天数改为 1 —— 针对 new_days > 1 守卫逻辑缺陷的回归测试。"""
     rag_service = MockRagService()
     checkpoint_path = tmp_path / "agent.sqlite"
     thread_id = "resume-days-to-one"
@@ -575,7 +575,7 @@ def test_resume_with_days_change_to_one(tmp_path) -> None:
 
 
 def test_resume_with_budget_change_updates_request(tmp_path) -> None:
-    """When feedback requests a different budget level, it is updated."""
+    """当反馈请求不同预算等级时，应更新。"""
     rag_service = MockRagService()
     checkpoint_path = tmp_path / "agent.sqlite"
     thread_id = "resume-budget-change"
@@ -601,7 +601,7 @@ def test_resume_with_budget_change_updates_request(tmp_path) -> None:
 
 
 def test_resume_without_parameter_change_keeps_request_intact(tmp_path) -> None:
-    """Feedback that only adds commentary does not alter the original request."""
+    """仅添加评注的反馈不应修改原始 request。"""
     rag_service = MockRagService()
     checkpoint_path = tmp_path / "agent.sqlite"
     thread_id = "resume-no-change"
@@ -630,7 +630,7 @@ def test_resume_without_parameter_change_keeps_request_intact(tmp_path) -> None:
 
 
 def test_apply_feedback_preserves_original_constraints_in_query() -> None:
-    """Changing destination should keep original budget/headcount context."""
+    """更改目的地时应保留原始的预算/人数上下文。"""
     from travel_agent.agent.nodes import apply_feedback_node
 
     state = {
@@ -658,12 +658,12 @@ def test_apply_feedback_preserves_original_constraints_in_query() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Reflection node tests
+# 反思节点测试
 # ---------------------------------------------------------------------------
 
 
 def test_reflection_node_produces_report() -> None:
-    """The reflect node must produce a ReflectionReport in the final state."""
+    """反思节点必须在最终状态中生成 ReflectionReport。"""
     rag_service = MockRagService()
     graph = build_travel_agent_graph(rag_service)
 
@@ -680,7 +680,7 @@ def test_reflection_node_produces_report() -> None:
 
 
 def test_reflection_report_in_serializable_payload() -> None:
-    """run_plan payload must include the reflection report."""
+    """run_plan 的输出必须包含反思报告。"""
     rag_service = MockRagService()
     payload = run_plan("杭州亲子三天", rag_service, destination="Hangzhou", days=3)
 
@@ -694,7 +694,7 @@ def test_reflection_report_in_serializable_payload() -> None:
 
 
 def test_reflection_flags_unsupported_claim() -> None:
-    """A plan with activities completely unrelated to evidence should be flagged."""
+    """与证据完全不相关的活动计划应被标记。"""
     rag_service = MockRagService()
     graph = build_travel_agent_graph(rag_service)
 
@@ -702,8 +702,8 @@ def test_reflection_flags_unsupported_claim() -> None:
 
     report = result.get("reflection_report")
     assert isinstance(report, ReflectionReport)
-    # The plan activities should have reasonable overlap with the evidence
-    # If coverage is high, the flags should be minimal
+    # 计划活动与证据应有合理的重合度
+    # 如果覆盖率高，标记应变少
     if report.hallucination_flags:
         for flag in report.hallucination_flags:
             assert isinstance(flag, HallucinationFlag)
@@ -714,7 +714,7 @@ def test_reflection_flags_unsupported_claim() -> None:
 
 
 def test_reflection_with_tool_results_cross_checks() -> None:
-    """Reflection must cross-check budget and risk against tool results."""
+    """反思必须将预算和风险与工具结果进行交叉检查。"""
     rag_service = MockRagService()
     graph = build_travel_agent_graph(rag_service)
 
@@ -727,13 +727,12 @@ def test_reflection_with_tool_results_cross_checks() -> None:
     assert report is not None
     assert tool_budget is not None
     assert tool_crowd is not None
-    # The evidence coverage should be reasonable since we use MockRagService
-    # with content matching the destination
+    # 证据覆盖率应合理，因为我们使用 MockRagService 且内容与目的地匹配
     assert report.evidence_coverage >= 0.0
 
 
 def test_reflection_report_passed_field() -> None:
-    """ReflectionReport.passed must reflect whether the plan is factually sound."""
+    """ReflectionReport.passed 必须反映计划是否事实可靠。"""
     rag_service = MockRagService()
     graph = build_travel_agent_graph(rag_service)
 
@@ -741,13 +740,13 @@ def test_reflection_report_passed_field() -> None:
 
     report = result["reflection_report"]
     assert isinstance(report.passed, bool)
-    # With good evidence match, the plan should pass
+    # 证据匹配良好的情况下，计划应通过
     if report.evidence_coverage >= 0.3 and len(report.hallucination_flags) == 0:
         assert report.passed is True
 
 
 def test_reflection_resume_graph_also_produces_report(tmp_path) -> None:
-    """The resume graph must also produce a reflection report."""
+    """恢复图也必须生成反思报告。"""
     rag_service = MockRagService()
     checkpoint_path = tmp_path / "agent.sqlite"
     thread_id = "reflect-resume-test"
@@ -776,7 +775,7 @@ def test_reflection_resume_graph_also_produces_report(tmp_path) -> None:
 
 
 def test_reflection_cli_json_includes_reflection(monkeypatch) -> None:
-    """CLI --json output must include the reflection report."""
+    """CLI --json 输出必须包含反思报告。"""
     rag_service = MockRagService()
 
     def fake_build_rag_service(*args: object, **kwargs: object) -> MockRagService:
@@ -807,12 +806,12 @@ def test_reflection_cli_json_includes_reflection(monkeypatch) -> None:
 
 
 # ---------------------------------------------------------------------------
-# LLM-based ReflectionService tests
+# 基于 LLM 的 ReflectionService 测试
 # ---------------------------------------------------------------------------
 
 
 def test_deterministic_reflect_returns_report() -> None:
-    """deterministic_reflect must return a valid ReflectionReport."""
+    """deterministic_reflect 必须返回有效的 ReflectionReport。"""
     from travel_agent.agent.reflection import deterministic_reflect
 
     plan = TravelPlan(
@@ -856,7 +855,7 @@ def test_deterministic_reflect_returns_report() -> None:
 
 
 def test_deterministic_reflect_none_plan() -> None:
-    """deterministic_reflect should handle None plan gracefully."""
+    """deterministic_reflect 应优雅处理 None 计划。"""
     from travel_agent.agent.reflection import deterministic_reflect
 
     report = deterministic_reflect(None, None)  # type: ignore[arg-type]
@@ -865,7 +864,7 @@ def test_deterministic_reflect_none_plan() -> None:
 
 
 def test_deterministic_reflect_cross_destination_check() -> None:
-    """deterministic_reflect must flag cross-destination contamination."""
+    """deterministic_reflect 必须标记跨目的地污染。"""
     from travel_agent.agent.reflection import deterministic_reflect
 
     plan = TravelPlan(
@@ -899,7 +898,7 @@ def test_deterministic_reflect_cross_destination_check() -> None:
 
 
 def test_reflection_service_no_llm_uses_deterministic() -> None:
-    """ReflectionService without a chat model must fall back to deterministic."""
+    """没有聊天模型的 ReflectionService 必须回退到确定性反思。"""
     from travel_agent.agent.reflection import ReflectionService
 
     service = ReflectionService(chat_model=None)
@@ -936,7 +935,7 @@ def test_reflection_service_no_llm_uses_deterministic() -> None:
 
 
 def test_reflection_service_keeps_multiple_destination_flags_from_same_location() -> None:
-    """LLM merge must not collapse distinct cross-destination flags by location only."""
+    """LLM 合并时不能仅按位置合并不同的跨目的地标记。"""
     from travel_agent.agent.reflection import ReflectionService
 
     service = ReflectionService(
@@ -995,34 +994,34 @@ def test_reflection_service_keeps_multiple_destination_flags_from_same_location(
 
 
 def test_reflection_retry_count_increments() -> None:
-    """Retry count must increment on each failed reflection pass."""
+    """每次反思未通过时重试计数必须递增。"""
     rag_service = MockRagService()
     graph = build_travel_agent_graph(rag_service, max_reflection_retries=2)
 
     result = graph.invoke({"question": "杭州亲子三天"})
-    # With MockRagService evidence matching Hangzhou, the plan should pass
-    # or at most have 1 retry. The retry_count must be present.
+    # 使用 MockRagService 且证据匹配杭州的情况下，计划应通过
+    # 或最多重试 1 次。retry_count 必须存在。
     assert "reflection_retry_count" in result
     assert isinstance(result["reflection_retry_count"], int)
-    # Should not exceed max_retries+1
+    # 不应超过 max_retries+1
     assert result["reflection_retry_count"] <= 3
 
 
 def test_reflection_retry_stops_at_limit() -> None:
-    """Graph must terminate even when reflection never passes."""
+    """即使反思从未通过，图也必须终止。"""
     rag_service = MockRagService()
-    # max_retries=1: at most 1 retry
+    # max_retries=1: 最多 1 次重试
     graph = build_travel_agent_graph(rag_service, max_reflection_retries=1)
 
     result = graph.invoke({"question": "杭州亲子三天"})
     report = result.get("reflection_report")
     assert report is not None
-    # Graph must terminate (this test is about no infinite loop)
+    # 图必须终止（此测试确保不会无限循环）
     assert result["reflection_retry_count"] <= 2
 
 
 def test_build_reflection_service_factory() -> None:
-    """build_reflection_service must return a working service."""
+    """build_reflection_service 必须返回一个可用的服务。"""
     from travel_agent.agent.reflection import build_reflection_service
 
     service = build_reflection_service()
@@ -1031,7 +1030,7 @@ def test_build_reflection_service_factory() -> None:
 
 
 def test_reflection_prompt_builder_includes_plan_and_evidence() -> None:
-    """build_reflection_prompt must include both plan and evidence content."""
+    """build_reflection_prompt 必须同时包含计划和证据内容。"""
     from travel_agent.agent.prompts import build_reflection_prompt
 
     plan = TravelPlan(
@@ -1060,7 +1059,7 @@ def test_reflection_prompt_builder_includes_plan_and_evidence() -> None:
         confidence=0.85,
     )
     prompt = build_reflection_prompt(plan, evidence, tool_results=None)
-    assert "TRAVEL PLAN" in prompt
-    assert "RAG EVIDENCE" in prompt
+    assert "旅行计划" in prompt
+    assert "RAG 证据" in prompt
     assert "West Lake" in prompt
     assert "Hangzhou" in prompt

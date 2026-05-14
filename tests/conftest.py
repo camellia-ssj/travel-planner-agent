@@ -8,10 +8,10 @@ import pytest
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    """Give each test run an isolated base temp directory on Windows.
+    """在 Windows 上为每次测试运行提供独立的临时基础目录。
 
-    Reusing a single ``--basetemp`` directory made repeat runs flaky when
-    SQLite / Chroma files were still being released by the OS.
+    重用单个 ``--basetemp`` 目录会导致重复运行时出现不稳定，
+    因为 SQLite / Chroma 文件可能仍被操作系统占用。
     """
 
     if getattr(config.option, "basetemp", None):

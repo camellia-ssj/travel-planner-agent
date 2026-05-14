@@ -1,4 +1,4 @@
-"""LangGraph travel agent MVP package."""
+"""LangGraph旅行智能体MVP包。"""
 
 from travel_agent.agent.graph import build_travel_agent_graph, build_travel_agent_resume_graph
 from travel_agent.agent.nodes import (

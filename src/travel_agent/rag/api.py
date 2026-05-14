@@ -1,6 +1,6 @@
-"""Public Python API for the travel destination RAG module.
+"""旅行目的地 RAG 模块的公开 Python API。
 
-External applications should prefer this module over importing CLI internals.
+外部应用应优先使用此模块，而非导入 CLI 内部模块。
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ from travel_agent.rag.service import RagRetriever, RagService
 
 @dataclass
 class TravelRag:
-    """Small facade for external Python callers."""
+    """供外部 Python 调用者使用的小型外观类。"""
 
     service: RagService
 
@@ -48,7 +48,7 @@ class TravelRag:
         reranker_fallback: bool | None = None,
         query_rewrite: str | QueryRewriteMode | None = None,
     ) -> TravelRag:
-        """Create a reusable RAG client."""
+        """创建一个可复用的 RAG 客户端。"""
 
         return cls(
             service=create_rag_service(
@@ -73,7 +73,7 @@ class TravelRag:
         destination: str | None = None,
         incremental: bool = False,
     ) -> IngestReport:
-        """Import supported documents into the local Chroma knowledge base."""
+        """将受支持的文档导入本地 Chroma 知识库。"""
 
         return self.service.ingest_documents(
             Path(path),
@@ -91,7 +91,7 @@ class TravelRag:
         season: str | None = None,
         retrieval_mode: str | RetrievalMode | None = None,
     ) -> list[SearchResult]:
-        """Retrieve relevant chunks."""
+        """检索相关文档块。"""
 
         return self.service.retrieve(
             question,
@@ -113,7 +113,7 @@ class TravelRag:
         season: str | None = None,
         retrieval_mode: str | RetrievalMode | None = None,
     ) -> EvidenceBundle:
-        """Return structured retrieval evidence and trace metadata."""
+        """返回结构化的检索证据和追踪元数据。"""
 
         return self.service.retrieve_evidence(
             question,
@@ -135,7 +135,7 @@ class TravelRag:
         season: str | None = None,
         retrieval_mode: str | RetrievalMode | None = None,
     ) -> QueryResponse:
-        """Retrieve relevant chunks with the original query attached."""
+        """检索相关文档块并附带原始查询。"""
 
         return self.service.query(
             question,
@@ -157,7 +157,7 @@ class TravelRag:
         season: str | None = None,
         retrieval_mode: str | RetrievalMode | None = None,
     ) -> AnswerResponse:
-        """Answer a question using retrieved chunks from the current knowledge base."""
+        """使用当前知识库检索到的文档块回答问题。"""
 
         return self.service.answer(
             question,
@@ -175,17 +175,17 @@ class TravelRag:
         top_k: int | None = None,
         section: str | None = None,
     ) -> RagRetriever:
-        """Return a LangChain retriever for external retrieval pipelines."""
+        """返回一个 LangChain 检索器，供外部检索管道使用。"""
 
         return self.service.as_retriever(destination=destination, top_k=top_k, section=section)
 
     def stats(self) -> dict[str, int | str]:
-        """Return local knowledge-base stats."""
+        """返回本地知识库统计信息。"""
 
         return self.service.stats()
 
     def reset(self) -> None:
-        """Clear the local Chroma knowledge base."""
+        """清空本地 Chroma 知识库。"""
 
         self.service.reset()
 
@@ -204,7 +204,7 @@ def create_rag_service(
     reranker_fallback: bool | None = None,
     query_rewrite: str | QueryRewriteMode | None = None,
 ) -> RagService:
-    """Create a configured `RagService` for external callers."""
+    """为外部调用者创建一个配置好的 `RagService`。"""
 
     settings = RagSettings()
     updates: dict[str, object] = {}
@@ -246,7 +246,7 @@ def ingest_destination_documents(
     embedding_provider: str | EmbeddingProviderName | None = None,
     incremental: bool = False,
 ) -> IngestReport:
-    """One-shot helper for importing destination knowledge documents."""
+    """导入目的地知识文档的一次性辅助函数。"""
 
     service = create_rag_service(
         persist_dir=persist_dir,
@@ -268,7 +268,7 @@ def search_destination_knowledge(
     season: str | None = None,
     retrieval_mode: str | RetrievalMode | None = None,
 ) -> list[SearchResult]:
-    """One-shot helper for retrieving destination knowledge chunks."""
+    """检索目的地知识块的一次性辅助函数。"""
 
     service = create_rag_service(
         persist_dir=persist_dir,
@@ -300,7 +300,7 @@ def query_destination_knowledge(
     season: str | None = None,
     retrieval_mode: str | RetrievalMode | None = None,
 ) -> QueryResponse:
-    """One-shot helper for retrieving destination knowledge with query metadata."""
+    """检索目的地知识并附带查询元数据的一次性辅助函数。"""
 
     service = create_rag_service(
         persist_dir=persist_dir,
@@ -332,7 +332,7 @@ def retrieve_destination_evidence(
     season: str | None = None,
     retrieval_mode: str | RetrievalMode | None = None,
 ) -> EvidenceBundle:
-    """One-shot helper returning structured retrieval evidence for Agent nodes."""
+    """为 Agent 节点返回结构化检索证据的一次性辅助函数。"""
 
     service = create_rag_service(
         persist_dir=persist_dir,
@@ -364,7 +364,7 @@ def answer_destination_question(
     season: str | None = None,
     retrieval_mode: str | RetrievalMode | None = None,
 ) -> AnswerResponse:
-    """One-shot helper for answering from the current destination knowledge base."""
+    """从当前目的地知识库回答问题的一次性辅助函数。"""
 
     service = create_rag_service(
         persist_dir=persist_dir,
@@ -392,7 +392,7 @@ def get_destination_retriever(
     embedding_provider: str | EmbeddingProviderName | None = None,
     section: str | None = None,
 ) -> RagRetriever:
-    """Return a LangChain retriever for external retrieval pipelines."""
+    """返回一个 LangChain 检索器，供外部检索管道使用。"""
 
     service = create_rag_service(
         persist_dir=persist_dir,
@@ -408,7 +408,7 @@ def reset_knowledge_base(
     collection_name: str | None = None,
     embedding_provider: str | EmbeddingProviderName | None = None,
 ) -> None:
-    """Clear the local Chroma knowledge base."""
+    """清空本地 Chroma 知识库。"""
 
     service = create_rag_service(
         persist_dir=persist_dir,
@@ -423,7 +423,7 @@ def get_knowledge_base_stats(
     collection_name: str | None = None,
     embedding_provider: str | EmbeddingProviderName | None = None,
 ) -> dict[str, int | str]:
-    """Return local knowledge-base stats."""
+    """返回本地知识库统计信息。"""
 
     service = create_rag_service(
         persist_dir=persist_dir,

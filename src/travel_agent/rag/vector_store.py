@@ -1,4 +1,4 @@
-"""LangChain Chroma vector store factory and helpers."""
+"""LangChain Chroma 向量存储工厂和辅助工具。"""
 
 from __future__ import annotations
 
@@ -18,11 +18,10 @@ from travel_agent.rag.config import RagSettings
 
 
 def chroma_class() -> type[VectorStore]:
-    """Return the LangChain Chroma integration used by this project.
+    """返回本项目使用的 LangChain Chroma 集成。
 
-    The community integration is preferred because ChromaDB 1.x's Rust backend
-    crashes on upsert in this Windows workspace. It still exposes the standard
-    LangChain VectorStore and Retriever interfaces.
+    优先使用社区版集成，因为 ChromaDB 1.x 的 Rust 后端在此 Windows 工作区中
+    执行 upsert 时会崩溃。它仍然暴露标准的 LangChain VectorStore 和 Retriever 接口。
     """
 
     _disable_chroma_default_embedding()
@@ -34,7 +33,7 @@ def chroma_class() -> type[VectorStore]:
 
 
 def _disable_chroma_default_embedding() -> None:
-    """Prevent ChromaDB 0.4.x from importing ONNX for its unused default embedding."""
+    """阻止 ChromaDB 0.4.x 为其未使用的默认嵌入导入 ONNX。"""
 
     if "chromadb.utils.embedding_functions" in sys.modules:
         return
@@ -62,7 +61,7 @@ def _chromadb_utils_path() -> str:
 
 
 def build_vector_store(settings: RagSettings, embeddings: Embeddings) -> VectorStore:
-    """Create a persistent local Chroma vector store."""
+    """创建一个持久化的本地 Chroma 向量存储。"""
 
     settings.ensure_parent_dirs()
     chroma = chroma_class()
@@ -88,7 +87,7 @@ def build_retriever(
     destination: str | None = None,
     section: str | None = None,
 ) -> VectorStoreRetriever:
-    """Build a LangChain retriever with optional metadata filtering."""
+    """构建带可选元数据过滤的 LangChain 检索器。"""
 
     search_kwargs: dict[str, object] = {"k": top_k}
     metadata_filter = build_chroma_filter(
@@ -103,7 +102,7 @@ def build_retriever(
 
 
 def build_chroma_filter(filters: dict[str, object | None]) -> dict[str, object]:
-    """Build a Chroma-compatible equality filter."""
+    """构建 Chroma 兼容的等值过滤器。"""
 
     clean_filters = {
         key: value
@@ -119,7 +118,7 @@ def build_chroma_filter(filters: dict[str, object | None]) -> dict[str, object]:
 
 
 def vector_store_count(vector_store: VectorStore) -> int:
-    """Return Chroma collection size across supported LangChain integrations."""
+    """返回跨受支持 LangChain 集成的 Chroma 集合大小。"""
 
     collection = getattr(vector_store, "_collection", None)
     if collection is not None and hasattr(collection, "count"):
@@ -128,7 +127,7 @@ def vector_store_count(vector_store: VectorStore) -> int:
 
 
 def vector_store_metadatas(vector_store: VectorStore) -> list[dict[str, object]]:
-    """Return stored Chroma metadatas when the integration exposes the collection."""
+    """当集成暴露集合时，返回存储的 Chroma 元数据。"""
 
     collection = getattr(vector_store, "_collection", None)
     if collection is None or not hasattr(collection, "get"):
@@ -139,7 +138,7 @@ def vector_store_metadatas(vector_store: VectorStore) -> list[dict[str, object]]
 
 
 def vector_store_documents(vector_store: VectorStore) -> list[Document]:
-    """Return stored Chroma documents with metadata for keyword retrieval."""
+    """返回存储的带元数据的 Chroma 文档，用于关键词检索。"""
 
     collection = getattr(vector_store, "_collection", None)
     if collection is None or not hasattr(collection, "get"):
@@ -166,19 +165,19 @@ def vector_store_documents(vector_store: VectorStore) -> list[Document]:
 
 
 def delete_documents_by_source(vector_store: VectorStore, sources: list[str]) -> int:
-    """Delete stored chunks whose source metadata matches any scanned document."""
+    """删除 source 元数据匹配任何已扫描文档的存储块。"""
 
     return delete_documents_by_metadata(vector_store, "source", sources)
 
 
 def delete_documents_by_document_id(vector_store: VectorStore, document_ids: list[str]) -> int:
-    """Delete stored chunks whose document_id metadata matches any scanned document."""
+    """删除 document_id 元数据匹配任何已扫描文档的存储块。"""
 
     return delete_documents_by_metadata(vector_store, "document_id", document_ids)
 
 
 def delete_documents_by_metadata(vector_store: VectorStore, key: str, values: list[str]) -> int:
-    """Delete stored chunks whose metadata key equals one of the given values."""
+    """删除元数据键等于给定值之一的存储块。"""
 
     collection = getattr(vector_store, "_collection", None)
     if collection is None or not hasattr(collection, "get") or not hasattr(collection, "delete"):
@@ -200,7 +199,7 @@ def delete_documents_by_metadata(vector_store: VectorStore, key: str, values: li
 
 
 def reset_chroma(settings: RagSettings) -> None:
-    """Delete the persisted Chroma directory for a clean local index."""
+    """删除持久化的 Chroma 目录以获得干净的本地索引。"""
 
     persist_dir = Path(settings.persist_dir).resolve()
     if persist_dir.exists():

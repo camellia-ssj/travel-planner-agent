@@ -79,8 +79,8 @@ class RecallQualityTest(unittest.TestCase):
             rank = _rank_of_expected_source(results, case.expected_source)
             if rank != 1:
                 failures.append(
-                    f"query={case.query!r}, expected_source={case.expected_source!r}, "
-                    f"expected_rank=1, actual_rank={rank!r}, actual_sources={_sources(results)!r}"
+                    f"查询={case.query!r}, 期望来源={case.expected_source!r}, "
+                    f"期望排名=1, 实际排名={rank!r}, 实际来源={_sources(results)!r}"
                 )
 
         self.assertGreaterEqual(
@@ -99,9 +99,9 @@ class RecallQualityTest(unittest.TestCase):
             for keyword in case.expected_keywords:
                 if keyword not in joined_content:
                     misses.append(
-                        f"query={case.query!r}, missing_keyword={keyword!r}, "
-                        f"expected_source={case.expected_source!r}, "
-                        f"actual_sources={_sources(results)!r}"
+                        f"查询={case.query!r}, 缺失关键词={keyword!r}, "
+                        f"期望来源={case.expected_source!r}, "
+                        f"实际来源={_sources(results)!r}"
                     )
 
         self.assertGreaterEqual(
@@ -116,17 +116,17 @@ class RecallQualityTest(unittest.TestCase):
             results = self.case_results[case.query]
             if case.expected_empty:
                 if results:
-                    failures.append(f"query={case.query!r}, expected empty results")
+                    failures.append(f"查询={case.query!r}, 预期结果为空")
                 continue
             if not results:
-                failures.append(f"query={case.query!r}, no results returned")
+                failures.append(f"查询={case.query!r}, 未返回结果")
                 continue
             for result in results:
                 mismatches = _metadata_mismatches(case, result)
                 if mismatches:
                     failures.append(
-                        f"query={case.query!r}, source={result.source!r}, "
-                        f"mismatches={mismatches!r}, metadata={result.metadata!r}"
+                        f"查询={case.query!r}, 来源={result.source!r}, "
+                        f"不匹配项={mismatches!r}, 元数据={result.metadata!r}"
                     )
 
         self.assertGreaterEqual(
@@ -161,7 +161,7 @@ def _load_cases(path: Path) -> list[RecallCase]:
                 )
             )
         except KeyError as exc:
-            raise AssertionError(f"missing field {exc!s} in {path}:{line_number}") from exc
+            raise AssertionError(f"缺少字段 {exc!s}，位置 {path}:{line_number}") from exc
     return cases
 
 
@@ -270,14 +270,14 @@ def _matches_metadata_value(actual: object, expected: str) -> bool:
 
 def _source_failure(case: RecallCase, results: list[SearchResult]) -> str:
     return (
-        f"query={case.query!r}, expected_source={case.expected_source!r}, "
-        f"expected_filters={_expected_metadata_filters(case)!r}, "
-        f"actual_sources={_sources(results)!r}"
+        f"查询={case.query!r}, 期望来源={case.expected_source!r}, "
+        f"期望过滤条件={_expected_metadata_filters(case)!r}, "
+        f"实际来源={_sources(results)!r}"
     )
 
 
 def _metric_failure(metric_name: str, value: float, failures: list[str]) -> str:
-    return f"{metric_name}={value:.3f} failed:\n" + "\n".join(failures)
+    return f"{metric_name}={value:.3f} 未通过:\n" + "\n".join(failures)
 
 
 def _sources(results: list[SearchResult]) -> list[str]:

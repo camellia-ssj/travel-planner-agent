@@ -1,4 +1,4 @@
-"""LangGraph state definitions for the travel agent MVP."""
+"""旅行智能体MVP的LangGraph状态定义。"""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from travel_agent.rag.models import EvidenceBundle
 
 
 class TravelAgentState(TypedDict, total=False):
-    """State passed between travel agent graph nodes."""
+    """在旅行智能体图节点之间传递的状态。"""
 
     question: str
     original_user_request: str

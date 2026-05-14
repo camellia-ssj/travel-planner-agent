@@ -1,4 +1,4 @@
-"""Unit tests for deterministic tool functions."""
+"""确定性工具函数的单元测试。"""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from travel_agent.tools.budget import estimate_budget
 from travel_agent.tools.crowd import assess_crowd_risk
 
 # ---------------------------------------------------------------------------
-# Helpers
+# 辅助函数
 # ---------------------------------------------------------------------------
 
 
@@ -48,7 +48,7 @@ def _trace() -> RetrievalTrace:
 
 
 def _evidence_with_sections(sections: dict[str, str]) -> EvidenceBundle:
-    """Build an EvidenceBundle with one result per section key."""
+    """构建一个每个分类键对应一条结果的 EvidenceBundle。"""
     results = []
     for section, content in sections.items():
         results.append(SearchResult(
@@ -95,7 +95,7 @@ def _full_evidence() -> EvidenceBundle:
 
 
 # ---------------------------------------------------------------------------
-# budget_tool tests
+# 预算工具测试
 # ---------------------------------------------------------------------------
 
 
@@ -131,7 +131,7 @@ class TestBudgetTool:
         })
         result = estimate_budget(1, 1, "standard", ev)
         assert any(
-            "Adjusted" in note or "adjusted" in note or "Evidence" in note
+            "上调" in note or "下调" in note or "证据" in note
             for note in result.notes
         )
 
@@ -149,7 +149,7 @@ class TestBudgetTool:
 
 
 # ---------------------------------------------------------------------------
-# crowd_risk_tool tests
+# 拥挤风险工具测试
 # ---------------------------------------------------------------------------
 
 
@@ -186,7 +186,7 @@ class TestCrowdRiskTool:
 
 
 # ---------------------------------------------------------------------------
-# alternative_tool tests
+# 备选方案工具测试
 # ---------------------------------------------------------------------------
 
 
@@ -231,7 +231,7 @@ class TestAlternativeTool:
 
 
 # ---------------------------------------------------------------------------
-# tool_node integration tests
+# tool_node 集成测试
 # ---------------------------------------------------------------------------
 
 
@@ -280,7 +280,7 @@ class TestToolNode:
         result = tool_node(state)
         budget = result["tool_budget"]
         assert budget is not None
-        # 2 audience members * 2 days * 600 standard = 2400
+        # 2 人 * 2 天 * 600 标准 = 2400
         assert budget.total == pytest.approx(2400.0)
 
     def test_weekend_keyword_sets_crowd_flag(self) -> None:
@@ -345,7 +345,7 @@ class TestToolNode:
         result = tool_node(state)
         budget = result["tool_budget"]
         assert budget is not None
-        # 3 people * 2 days * 600 = 3600
+        # 3 人 * 2 天 * 600 = 3600
         assert budget.total == pytest.approx(3600.0)
 
     def test_couple_implicit_count(self) -> None:
@@ -381,7 +381,7 @@ class TestToolNode:
 
 
 # ---------------------------------------------------------------------------
-# weekend / holiday keyword detection
+# 周末 / 节假日关键词检测
 # ---------------------------------------------------------------------------
 
 
@@ -414,7 +414,7 @@ class TestWeekendHolidayDetection:
 
 
 # ---------------------------------------------------------------------------
-# people count parsing
+# 人数解析
 # ---------------------------------------------------------------------------
 
 

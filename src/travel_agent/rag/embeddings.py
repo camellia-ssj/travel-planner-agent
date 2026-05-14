@@ -1,4 +1,4 @@
-"""LangChain embedding providers for the travel RAG module."""
+"""旅行 RAG 模块的 LangChain 嵌入提供程序。"""
 
 from __future__ import annotations
 
@@ -14,11 +14,10 @@ from travel_agent.rag.config import EmbeddingProviderName, RagSettings
 
 
 class LocalHashEmbeddings(Embeddings):
-    """Deterministic test/demo embedding.
+    """确定性的测试/演示嵌入。
 
-    This is intentionally not a production semantic embedding model. It keeps
-    unit tests and offline demos deterministic when no external embedding
-    provider is configured.
+    这不是生产级语义嵌入模型。它在未配置外部嵌入提供程序时，
+    使单元测试和离线演示保持确定性。
     """
 
     def __init__(self, dimensions: int = 512) -> None:
@@ -47,7 +46,7 @@ class LocalHashEmbeddings(Embeddings):
 
 
 class SentenceTransformersEmbeddings(Embeddings):
-    """Local multilingual embedding provider backed by sentence-transformers."""
+    """基于 sentence-transformers 的本地多语言嵌入提供程序。"""
 
     def __init__(self, model_name: str) -> None:
         try:
@@ -71,7 +70,7 @@ class SentenceTransformersEmbeddings(Embeddings):
 
 
 def build_embeddings(settings: RagSettings) -> Embeddings:
-    """Build the configured embedding provider with deterministic local fallback."""
+    """构建配置的嵌入提供程序，并带确定性的本地回退。"""
 
     provider = settings.embedding_provider
     if provider in {EmbeddingProviderName.QWEN, EmbeddingProviderName.DASHSCOPE}:

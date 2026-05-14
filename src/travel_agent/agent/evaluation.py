@@ -1,7 +1,7 @@
-"""Offline evaluation for the travel agent pipeline.
+"""旅行智能体流水线的离线评估。
 
-Evaluates plan quality without requiring an LLM — uses the rule-based
-planner so evaluation remains deterministic and API-key-free.
+在不需要LLM的情况下评估计划质量 — 使用基于规则的规划器，
+使评估保持确定性且无需API密钥。
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from travel_agent.agent.schemas import TravelPlan
 from travel_agent.rag.models import EvidenceBundle, RetrievalTrace, SearchResult
 
 # ---------------------------------------------------------------------------
-# Eval case definition
+# 评估用例定义
 # ---------------------------------------------------------------------------
 
 
@@ -29,13 +29,13 @@ class AgentEvalCase:
     expect_budget: bool = True
     expect_risk_notices: bool = True
     expected_evidence_sources: tuple[str, ...] = ()
-    low_confidence_ok: bool = False  # case where empty/weak evidence is expected
-    expected_empty: bool = False  # case where no evidence should be returned
+    low_confidence_ok: bool = False  # 预期证据为空/薄弱的用例
+    expected_empty: bool = False  # 预期不返回任何证据的用例
     category: str = ""
 
 
 # ---------------------------------------------------------------------------
-# Eval metrics
+# 评估指标
 # ---------------------------------------------------------------------------
 
 
@@ -87,14 +87,14 @@ class AgentEvalMetrics:
 
 
 # ---------------------------------------------------------------------------
-# Mock evidence service
+# Mock证据服务
 # ---------------------------------------------------------------------------
 
 
 class _MockEvidenceService:
-    """Deterministic evidence service backed by a dictionary.
+    """基于字典的确定性证据服务。
 
-    If a query isn't in the map, returns empty evidence.
+    如果查询不在映射表中，则返回空证据。
     """
 
     def __init__(self, evidence_map: dict[str, list[SearchResult]]) -> None:
@@ -140,7 +140,7 @@ class _MockEvidenceService:
 
 
 # ---------------------------------------------------------------------------
-# Core eval logic
+# 核心评估逻辑
 # ---------------------------------------------------------------------------
 
 
@@ -149,10 +149,10 @@ def evaluate_agent_plans(
     evidence_map: dict[str, list[SearchResult]],
     planner: TravelPlanner | None = None,
 ) -> AgentEvalMetrics:
-    """Run agent evaluation without any LLM calls.
+    """在不调用任何LLM的情况下运行智能体评估。
 
-    Uses a mock evidence service and a rule-based planner to evaluate
-    plan quality deterministically.
+    使用Mock证据服务和基于规则的规划器，
+    以确定性方式评估计划质量。
     """
     import time
 
@@ -172,7 +172,7 @@ def evaluate_agent_plans(
         is_valid: bool = state.get("is_valid", False)
         errors: list[str] = state.get("validation_errors", [])
 
-        # --- Metric: days match ---
+        # --- 指标：天数匹配 ---
         if plan.days == case.expected_days:
             metrics.days_match += 1
         else:
@@ -181,7 +181,7 @@ def evaluate_agent_plans(
                 f"expected={case.expected_days}, actual={plan.days}"
             )
 
-        # --- Metric: budget present ---
+        # --- 指标：预算存在 ---
         if (plan.budget_items and len(plan.budget_items) > 0) == case.expect_budget:
             metrics.budget_present += 1
         else:
@@ -190,7 +190,7 @@ def evaluate_agent_plans(
                 f"actual={len(plan.budget_items)} items"
             )
 
-        # --- Metric: risk notices present ---
+        # --- 指标：风险提示存在 ---
         if (plan.risk_notices and len(plan.risk_notices) > 0) == case.expect_risk_notices:
             metrics.risk_notices_present += 1
         else:
@@ -199,7 +199,7 @@ def evaluate_agent_plans(
                 f"actual={len(plan.risk_notices)} notices"
             )
 
-        # --- Metric: evidence source coverage ---
+        # --- 指标：证据来源覆盖率 ---
         if case.expected_evidence_sources:
             expected_set = set(case.expected_evidence_sources)
             actual_set = set(plan.evidence_sources)
@@ -213,10 +213,10 @@ def evaluate_agent_plans(
             coverage = 1.0
         metrics.evidence_source_coverage += coverage
 
-        # --- Metric: low confidence handling ---
+        # --- 指标：低置信度处理 ---
         if case.low_confidence_ok:
             metrics.low_confidence_total += 1
-            # Reasonable handling: plan still produces output with alternatives/fallbacks
+            # 合理处理：计划仍生成包含备选/回退方案的输出
             if plan.alternatives or (plan.risk_notices and len(plan.risk_notices) >= 1):
                 metrics.low_confidence_handled += 1
             else:
@@ -224,11 +224,10 @@ def evaluate_agent_plans(
                     f"low_confidence_mishandled: query={case.query!r}"
                 )
 
-        # --- Metric: empty result handling ---
+        # --- 指标：空结果处理 ---
         if case.expected_empty:
             metrics.empty_result_total += 1
-            # Reasonable: plan is structurally valid (has days and budget/risks)
-            # even when no evidence is available
+            # 合理处理：即使没有可用证据，计划在结构上仍然有效（有天数和预算/风险）
             if plan.days > 0 and len(plan.budget_items) > 0:
                 metrics.empty_result_handled += 1
             else:
@@ -236,7 +235,7 @@ def evaluate_agent_plans(
                     f"empty_result_mishandled: query={case.query!r}, errors={errors}"
                 )
 
-        # --- Metric: validation ---
+        # --- 指标：校验通过 ---
         if is_valid:
             metrics.validation_passed += 1
         else:
@@ -249,7 +248,7 @@ def evaluate_agent_plans(
 
 
 # ---------------------------------------------------------------------------
-# Eval case loading
+# 评估用例加载
 # ---------------------------------------------------------------------------
 
 

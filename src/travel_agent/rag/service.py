@@ -1,4 +1,4 @@
-"""Application service for LangChain + Chroma destination RAG."""
+"""LangChain + Chroma 目的地 RAG 的应用服务。"""
 
 from __future__ import annotations
 
@@ -52,7 +52,7 @@ from travel_agent.rag.vector_store import (
 
 
 class RagService:
-    """Coordinates LangChain loading, splitting, embedding, Chroma and retrieval."""
+    """协调 LangChain 加载、分割、嵌入、Chroma 和检索。"""
 
     def __init__(
         self,
@@ -152,7 +152,7 @@ class RagService:
         destination: str | None = None,
         incremental: bool = False,
     ) -> IngestReport:
-        """Backward-compatible alias for ingesting supported knowledge documents."""
+        """入库受支持知识文档的向后兼容别名。"""
 
         return self.ingest_documents(path, destination=destination, incremental=incremental)
 
@@ -203,7 +203,7 @@ class RagService:
         }
         metadata_filters = _metadata_filters(destination, explicit_section, travel_type, season)
 
-        # ── Query rewrite ──────────────────────────────────────────────
+        # ── 查询重写 ──────────────────────────────────────────────
         rewrite_mode = _query_rewrite_mode(
             query_rewrite_mode or self.settings.query_rewrite
         )
@@ -406,7 +406,7 @@ class RagService:
         season: str | None,
         started_at: float,
     ) -> EvidenceBundle:
-        """Fuse retrieval results from multiple rewritten queries via RRF."""
+        """通过 RRF 融合多个重写查询的检索结果。"""
         fused = search_with_query_rewrites(
             self,
             original_query,
@@ -468,10 +468,10 @@ class RagService:
         )
 
     def _build_rewriter(self) -> LLMQueryRewriter:
-        """Build a query rewriter from the current settings.
+        """从当前设置构建查询重写器。
 
-        The rewriter's model is None when no LLM API key is configured,
-        making all rewrites a transparent pass-through.
+        当未配置 LLM API 密钥时，重写器的模型为 None，
+        使所有重写变为透明的直通。
         """
         return build_query_rewriter(
             llm_provider=self.settings.query_rewrite_provider,
@@ -725,7 +725,7 @@ class RagService:
 
 
 class RagRetriever:
-    """Small invoke-compatible retriever that uses the service fallback stack."""
+    """使用服务回退栈的小型 invoke 兼容检索器。"""
 
     def __init__(
         self,
@@ -792,7 +792,7 @@ def _rrf_fuse(
     weights: list[float] | None = None,
     k: int = 60,
 ) -> list[SearchResult]:
-    """Fuse ranked result lists using Reciprocal Rank Fusion."""
+    """使用倒数排名融合（RRF）合并排序后的结果列表。"""
 
     scores: dict[str, float] = {}
     results_by_key: dict[str, SearchResult] = {}

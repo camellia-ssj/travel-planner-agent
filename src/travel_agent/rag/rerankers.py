@@ -1,4 +1,4 @@
-"""Reranker extension points for retrieval results."""
+"""检索结果的重排序器扩展点。"""
 
 from __future__ import annotations
 
@@ -11,16 +11,16 @@ from travel_agent.rag.models import SearchResult
 
 
 class Reranker(Protocol):
-    """Protocol for optional pure-RAG rerankers."""
+    """可选纯 RAG 重排序器的协议。"""
 
     name: str
 
     def rerank(self, query: str, results: list[SearchResult]) -> list[SearchResult]:
-        """Return results in reranked order."""
+        """按重排序后的顺序返回结果。"""
 
 
 class NoOpReranker:
-    """Reranker placeholder that preserves retrieval order."""
+    """保持检索顺序的重排序器占位实现。"""
 
     name = "none"
 
@@ -29,10 +29,10 @@ class NoOpReranker:
 
 
 class KeywordOverlapReranker:
-    """Deterministic lexical reranker for pure-RAG operation.
+    """纯 RAG 操作的确定性词汇重排序器。
 
-    This avoids any LLM or cross-encoder dependency while still promoting chunks
-    that share concrete query terms with the user's question.
+    它避免了任何 LLM 或跨编码器依赖，同时仍然提升与用户问题
+    共享具体查询词条的文档块。
     """
 
     name = "keyword"
@@ -64,7 +64,7 @@ class KeywordOverlapReranker:
 
 
 class CrossEncoderReranker:
-    """Sentence-transformers cross-encoder reranker loaded lazily."""
+    """延迟加载的 sentence-transformers 跨编码器重排序器。"""
 
     name = "cross-encoder"
 
@@ -115,7 +115,7 @@ class CrossEncoderReranker:
 
 
 class FallbackReranker:
-    """Use a primary reranker, then fallback if model loading or scoring fails."""
+    """使用主重排序器，在模型加载或评分失败时回退。"""
 
     def __init__(self, primary: Reranker, fallback: Reranker) -> None:
         self.primary = primary
@@ -130,7 +130,7 @@ class FallbackReranker:
 
 
 def build_reranker(settings: RagSettings) -> Reranker:
-    """Build the configured reranker without loading optional models up front."""
+    """构建配置的重排序器，不预先加载可选模型。"""
 
     fallback = KeywordOverlapReranker()
     if settings.reranker is RerankerName.KEYWORD:

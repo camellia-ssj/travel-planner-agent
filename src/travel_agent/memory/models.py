@@ -1,4 +1,4 @@
-"""Pydantic models for Memory long-term user profiles and trip records."""
+"""Memory 长期用户画像和行程记录的 Pydantic 模型。"""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 
 class TripRecord(BaseModel):
-    """A single trip planning session stored in long-term memory."""
+    """存储在长期记忆中的单次行程规划会话。"""
 
     memory_id: str
     user_id: str
@@ -25,11 +25,10 @@ class TripRecord(BaseModel):
 
 
 class UserProfile(BaseModel):
-    """Learned user profile aggregated from trip history.
+    """从行程历史中聚合学习得到的用户画像。
 
-    This profile serves as the Agent's "user portrait" — it captures
-    travel preferences, patterns, and style so the planner can
-    personalize recommendations across sessions.
+    此画像作为智能体的"用户画像"——它捕捉用户的旅行偏好、出行模式
+    和风格，以便规划器能跨会话个性化推荐。
     """
 
     user_id: str
@@ -48,7 +47,7 @@ class UserProfile(BaseModel):
     )
 
     def to_context_text(self) -> str:
-        """Render the profile as natural-language context for the planner."""
+        """将用户画像渲染为自然语言上下文，供规划器使用。"""
         if self.total_trips == 0:
             return ""
         parts: list[str] = [f"用户画像 (基于 {self.total_trips} 次历史行程):"]

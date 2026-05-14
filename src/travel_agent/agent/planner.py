@@ -1,4 +1,4 @@
-"""Planner abstractions for the LangGraph travel agent."""
+"""LangGraph旅行智能体的规划器抽象。"""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ DEFAULT_AGENT_MODEL = "qwen3-max"
 
 
 class TravelPlanner(Protocol):
-    """Planner contract used by the agent graph."""
+    """智能体图使用的规划器契约。"""
 
     def plan(
         self,
@@ -37,12 +37,12 @@ class TravelPlanner(Protocol):
         tool_results: dict[str, object] | None = None,
         user_profile: UserProfile | None = None,
     ) -> TravelPlan:
-        """Generate a structured travel plan."""
+        """生成结构化的旅行计划。"""
 
 
 @dataclass
 class RuleBasedTravelPlanner:
-    """Deterministic fallback planner from the stage 1 MVP."""
+    """阶段1 MVP中的确定性回退规划器。"""
 
     def plan(
         self,
@@ -86,7 +86,7 @@ class RuleBasedTravelPlanner:
 
 @dataclass
 class LangChainStructuredPlanner:
-    """Planner backed by a LangChain chat model with Pydantic structured output."""
+    """基于LangChain聊天模型和Pydantic结构化输出的规划器。"""
 
     chat_model: BaseChatModel
     fallback: TravelPlanner | None = None
@@ -130,7 +130,7 @@ class LangChainStructuredPlanner:
 
 @dataclass(frozen=True)
 class AgentPlannerSettings:
-    """Runtime settings for the default LLM planner."""
+    """默认LLM规划器的运行时设置。"""
 
     llm_provider: str = "qwen"
     model: str = DEFAULT_AGENT_MODEL
@@ -145,7 +145,7 @@ class AgentPlannerSettings:
 
 
 def build_default_planner(settings: AgentPlannerSettings | None = None) -> TravelPlanner:
-    """Build the default planner, falling back to rules when no API key is configured."""
+    """构建默认规划器，在未配置API密钥时回退到规则。"""
 
     active_settings = settings or AgentPlannerSettings.from_env()
     fallback = RuleBasedTravelPlanner()
@@ -292,11 +292,11 @@ def _build_day_plans(
     feedback: list[str],
     evidence_sources: list[str],
 ) -> list[DayPlan]:
-    """Build day plans with meaningful variation across days.
+    """构建具有跨天有意义变化的每日计划。
 
-    Evidence content is broken into sentences and distributed across days
-    using stride-based allocation so every day sees different material.
-    When evidence is sparse, synthetic day-themed slots fill the gaps.
+    证据内容被拆分为句子，并通过跨步分配方式分布到每天，
+    使每天看到不同的内容。当证据稀疏时，
+    用合成的主题时段填充空白。
     """
     sentences = _evidence_sentences(results)
     day_plans: list[DayPlan] = []
@@ -321,11 +321,11 @@ def _build_day_plans(
 
 
 def _evidence_sentences(results: list[SearchResult]) -> list[str]:
-    """Break evidence results into individual sentences, preserving order."""
+    """将证据结果拆分为单个句子，保持原有顺序。"""
     sentences: list[str] = []
     for r in results:
         text = r.content.strip()
-        # Split on Chinese/English sentence boundaries
+        # 按中英文句子边界拆分
         parts = _split_sentences(text)
         for part in parts:
             clean = part.strip()
@@ -335,7 +335,7 @@ def _evidence_sentences(results: list[SearchResult]) -> list[str]:
 
 
 def _split_sentences(text: str) -> list[str]:
-    """Split text on common sentence delimiters."""
+    """按常见句子分隔符拆分文本。"""
     result: list[str] = []
     current: list[str] = []
     for ch in text:
@@ -358,9 +358,8 @@ def _activities_for_day_v3(
     sentences: list[str],
     user_feedback: list[str],
 ) -> list[str]:
-    """Build day-specific activities by distributing evidence sentences
-    across days with stride-based allocation so every day gets different
-    material, even when the evidence pool is small."""
+    """通过跨步分配方式将证据句子分布到每天，构建每日特定活动，
+    使每天获得不同的内容，即使证据池较小时也是如此。"""
 
     activities: list[str] = []
     slots = _DAY_TIME_SLOTS.get(day, [
@@ -369,34 +368,33 @@ def _activities_for_day_v3(
         f"傍晚: {destination} Day {day}",
     ])
 
-    # Assign evidence sentences to this day via stride distribution.
-    # Day 1 gets sentences[0], sentences[days], sentences[2*days], ...
-    # Day 2 gets sentences[1], sentences[1+days], sentences[1+2*days], ...
+    # 通过跨步分配方式将证据句子分配给当天。
+    # 第1天获得 sentences[0]、sentences[days]、sentences[2*days]……
+    # 第2天获得 sentences[1]、sentences[1+days]、sentences[1+2*days]……
     assigned: list[str] = []
     for i in range(day - 1, len(sentences), days):
         assigned.append(sentences[i])
 
-    # If we got nothing (sparse evidence), take a window per day
+    # 如果一无所获（证据稀疏），按天取窗口
     if not assigned and sentences:
         window = max(1, len(sentences) // max(days, 1))
         start = (day - 1) * window % len(sentences)
         assigned = sentences[start:start + window]
 
-    # Build activities by pairing time slots with evidence — one evidence
-    # sentence per slot, no cycling.
+    # 将时间段与证据配对构建活动 — 每个时段一条证据句子，不循环使用。
     for idx, slot in enumerate(slots):
         if idx < len(assigned):
             activities.append(f"{slot} — {assigned[idx]}")
         elif not assigned:
             activities.append(f"{slot} — 探索{destination}周边")
-            break  # no evidence at all → one synthetic slot is enough
+            break  # 完全没有证据 → 一个人造时段就足够了
 
-    # If we have more evidence than slots, append the extras
+    # 如果证据比时段多，追加多余的
     if len(assigned) > len(slots):
         for extra in assigned[len(slots):]:
             activities.append(f"推荐: {extra}")
 
-    # Always ensure at least 2 activities
+    # 始终确保至少有 2 个活动
     if len(activities) < 2:
         activities.append(f"自由探索: 根据天气调整{destination}行程")
 
@@ -466,12 +464,12 @@ def _evidence_sources(results: list[SearchResult]) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# Tool result -> TravelPlan field conversion helpers
+# 工具结果 -> TravelPlan 字段转换辅助函数
 # ---------------------------------------------------------------------------
 
 
 def _budget_estimate_to_items(estimate: BudgetEstimate) -> list[BudgetItem]:
-    """Convert a deterministic BudgetEstimate into BudgetItem list for TravelPlan."""
+    """将确定性 BudgetEstimate 转换为 TravelPlan 的 BudgetItem 列表。"""
     return [
         BudgetItem(
             category="accommodation",
@@ -502,7 +500,7 @@ def _budget_estimate_to_items(estimate: BudgetEstimate) -> list[BudgetItem]:
 
 
 def _crowd_to_risk_notices(assessment: CrowdRiskAssessment) -> list[RiskNotice]:
-    """Convert a CrowdRiskAssessment into RiskNotice list for TravelPlan."""
+    """将 CrowdRiskAssessment 转换为 TravelPlan 的 RiskNotice 列表。"""
     notices: list[RiskNotice] = []
     for poi in assessment.poi_risks:
         notices.append(RiskNotice(
@@ -524,7 +522,7 @@ def _crowd_to_risk_notices(assessment: CrowdRiskAssessment) -> list[RiskNotice]:
 
 
 def _alternatives_to_strings(plan: AlternativePlan) -> list[str]:
-    """Convert an AlternativePlan into string list for TravelPlan.alternatives."""
+    """将 AlternativePlan 转换为 TravelPlan.alternatives 的字符串列表。"""
     result: list[str] = []
     for alt in plan.alternatives:
         result.append(f"{alt.original_scenario} -> {alt.suggested_alternative} ({alt.reason})")
@@ -535,7 +533,7 @@ def _apply_tool_overrides(
     plan: TravelPlan,
     tool_results: dict[str, object] | None,
 ) -> TravelPlan:
-    """Post-LLM override: force tool results onto plan fields."""
+    """LLM后覆盖：将工具结果强制写入计划字段。"""
     if not tool_results:
         return plan
     updates: dict[str, object] = {}
