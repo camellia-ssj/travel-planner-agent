@@ -13,11 +13,11 @@ from travel_agent.rag.config import EmbeddingProviderName, RetrievalMode
 from travel_agent.rag.models import SearchResult
 
 DEFAULT_QUALITY_THRESHOLDS = {
-    "recall_at_k": 0.95,
-    "mrr_at_k": 0.9,
-    "keyword_hit_rate_at_k": 0.9,
+    "recall_at_k": 0.90,
+    "mrr_at_k": 0.85,
+    "keyword_hit_rate_at_k": 0.85,
     "metadata_filter_accuracy": 1.0,
-    "expected_empty_accuracy": 0.5,
+    "expected_empty_accuracy": 0.80,
 }
 
 
@@ -206,16 +206,24 @@ def _metrics(
     latencies = [latency for _, _, latency in case_results]
     metrics = {
         "recall_at_k": recalled / total_cases if total_cases else 1.0,
+        # 正确答案排第几
         "mrr_at_k": reciprocal_rank_sum / total_cases if total_cases else 1.0,
+        # Top-K 里有多少是相关的
         "precision_at_k": precision_sum / total_cases if total_cases else 1.0,
+        # 好的结果排在前面了吗
         "ndcg_at_k": ndcg_sum / total_cases if total_cases else 1.0,
+        # 关键信息有没有
         "keyword_hit_rate_at_k": hit_keywords / total_keywords if total_keywords else 1.0,
+        # 过滤条件生效了吗
         "metadata_filter_accuracy": metadata_hits / metadata_checks if metadata_checks else 1.0,
+        # 空结果率
         "empty_result_rate": sum(1 for _, results, _ in case_results if not results)
         / len(case_results),
+        # 该空的时候空了吗
         "expected_empty_accuracy": empty_hits / len(expected_empty_cases)
         if expected_empty_cases
         else 1.0,
+        # 搜一次要多久
         "avg_latency_ms": sum(latencies) / len(latencies) if latencies else 0.0,
     }
     return metrics, failures

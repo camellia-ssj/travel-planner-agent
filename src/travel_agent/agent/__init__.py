@@ -1,5 +1,12 @@
 """LangGraph旅行智能体MVP包。"""
 
+from travel_agent.agent.dspy_planner import (
+    DSPyCompileSettings,
+    DSPyOptimizedPlanner,
+    TravelPlanningModule,
+    compile_dspy_planner,
+    load_compiled_planner,
+)
 from travel_agent.agent.graph import build_travel_agent_graph, build_travel_agent_resume_graph
 from travel_agent.agent.nodes import (
     MemoryService,
@@ -11,6 +18,7 @@ from travel_agent.agent.nodes import (
     reflect_node,
     retrieve_evidence_node,
     save_trip_memory_node,
+    select_skills_node,
     tool_node,
     validate_plan_node,
 )
@@ -41,6 +49,10 @@ from travel_agent.agent.schemas import (
     TravelPlan,
     TravelRequest,
 )
+from travel_agent.agent.self_consistency import (
+    SelfConsistencyPlanner,
+    SelfConsistencySettings,
+)
 from travel_agent.agent.state import TravelAgentState
 
 __all__ = [
@@ -50,6 +62,8 @@ __all__ = [
     "BudgetItem",
     "CrowdRiskAssessment",
     "DayPlan",
+    "DSPyCompileSettings",
+    "DSPyOptimizedPlanner",
     "HallucinationFlag",
     "MemoryService",
     "POICrowdRisk",
@@ -57,8 +71,11 @@ __all__ = [
     "ReflectionService",
     "ReflectionSettings",
     "RiskNotice",
+    "SelfConsistencyPlanner",
+    "SelfConsistencySettings",
     "TravelAgentState",
     "TravelPlan",
+    "TravelPlanningModule",
     "TravelRequest",
     "AgentPlannerSettings",
     "LangChainStructuredPlanner",
@@ -69,14 +86,17 @@ __all__ = [
     "build_reflection_service",
     "build_travel_agent_graph",
     "build_travel_agent_resume_graph",
+    "compile_dspy_planner",
     "deterministic_reflect",
     "generate_plan_node",
     "generate_plan_with_planner_node",
+    "load_compiled_planner",
     "load_user_profile_node",
     "parse_user_request_node",
     "reflect_node",
     "retrieve_evidence_node",
     "save_trip_memory_node",
+    "select_skills_node",
     "tool_node",
     "validate_plan_node",
 ]

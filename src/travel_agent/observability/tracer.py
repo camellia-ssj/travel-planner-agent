@@ -14,6 +14,7 @@ from typing import Any
 
 from travel_agent.agent.schemas import ReflectionReport, TravelPlan, TravelRequest
 from travel_agent.rag.models import EvidenceBundle
+from travel_agent.skills.models import SkillSelection
 
 
 @dataclass
@@ -34,6 +35,8 @@ class AgentTraceContext:
     reflection_evidence_coverage: float = 0.0
     reflection_confidence: float = 0.0
     reflection_flag_count: int = 0
+    active_skills: list[str] = field(default_factory=list)
+    skill_selection_reason: str = ""
 
     thread_id: str = ""
 
@@ -52,6 +55,8 @@ class AgentTraceContext:
             "reflection_evidence_coverage": self.reflection_evidence_coverage,
             "reflection_confidence": self.reflection_confidence,
             "reflection_flag_count": self.reflection_flag_count,
+            "active_skills": self.active_skills,
+            "skill_selection_reason": self.skill_selection_reason,
             "final_plan_summary": self.final_plan.summary if self.final_plan else "",
             "final_plan_days": self.final_plan.days if self.final_plan else 0,
             "final_plan_has_budget": bool(self.final_plan and self.final_plan.budget_items),
@@ -108,6 +113,15 @@ class AgentTracer:
             "evidence_count": len(evidence.results),
             "confidence": evidence.confidence,
             "trace_id": evidence.trace.trace_id,
+        })
+
+    def record_skills(self, ctx: AgentTraceContext, selection: SkillSelection) -> None:
+        ctx.active_skills = selection.names
+        ctx.skill_selection_reason = selection.selection_reason
+        self._maybe_langsmith_metadata("skills", {
+            "active_skills": selection.names,
+            "selection_reason": selection.selection_reason,
+            "required_tools": selection.required_tools(),
         })
 
     def record_planner(self, ctx: AgentTraceContext, model: str, fallback: bool = False) -> None:

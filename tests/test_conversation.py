@@ -2,35 +2,53 @@
 
 from __future__ import annotations
 
-import pytest
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage
 
 from travel_agent.conversation.nodes import (
-    ClarificationOutput,
+    _MAX_CLARIFICATION_TURNS,
+    _audience_to_text,
+    _build_fallback_presentation,
+    _build_fallback_response,
     clarify_node,
     feedback_router_node,
     invoke_planning_node,
     present_plan_node,
     slot_tracker_node,
-    _audience_to_text,
-    _build_fallback_presentation,
-    _build_fallback_response,
-    _MAX_CLARIFICATION_TURNS,
 )
 from travel_agent.conversation.slot_tracker import (
+    _slot_extraction_function,
     apply_defaults,
     check_slots_complete,
-    extract_slots,
     get_recommendation_text,
     is_vague_request,
-    _slot_extraction_function,
 )
 from travel_agent.conversation.state import ConversationState
-from travel_agent.rag.models import EvidenceBundle, SearchResult
-
+from travel_agent.rag.models import EvidenceBundle, RetrievalTrace, SearchResult
 
 # ── Mock RAG 服务（与 test_agent_graph.py 相同的模式）─────────
+
+
+def _mock_trace(destination: str = "Hangzhou") -> RetrievalTrace:
+    return RetrievalTrace.create(
+        retrieval_mode="hybrid",
+        requested_top_k=5,
+        candidate_k=10,
+        returned_results=1,
+        empty_result=False,
+        destination=destination,
+        section="",
+        travel_type="",
+        season="",
+        embedding_provider="local",
+        reranker="keyword",
+        collection_version="test",
+        metadata_filters={},
+        vector_hits=[],
+        keyword_hits=[],
+        fused_hits=[],
+        reranked_hits=[],
+    )
 
 
 class MockRagService:
@@ -49,6 +67,7 @@ class MockRagService:
         season: str | None = None,
         retrieval_mode: str | None = None,
     ) -> EvidenceBundle:
+        dest = destination or "Hangzhou"
         self.calls.append({
             "query": query,
             "destination": destination,
@@ -58,13 +77,16 @@ class MockRagService:
             question=query,
             results=[
                 SearchResult(
-                    content=f"{destination or 'Hangzhou'} West Lake scenic itinerary.",
+                    content=f"{dest} West Lake scenic itinerary.",
                     source="hangzhou.md",
-                    destination=destination or "Hangzhou",
+                    destination=dest,
                     score=0.9,
                     metadata={"section": "itinerary"},
                 ),
             ],
+            trace=_mock_trace(dest),
+            query_analysis={"destination": dest},
+            confidence=0.85,
         )
 
 
@@ -310,11 +332,12 @@ class TestAudienceToText:
 class TestFallbackResponse:
     def test_with_destination_and_days(self):
         resp = _build_fallback_response({"clarified_destination": "Hangzhou", "clarified_days": 3})
-        assert "Hangzhou" in resp
+        assert "杭州" in resp
+        assert "3" in resp
 
     def test_with_destination_only(self):
         resp = _build_fallback_response({"clarified_destination": "Beijing"})
-        assert "Beijing" in resp
+        assert "北京" in resp
         assert "几天" in resp
 
     def test_with_nothing(self):
@@ -390,7 +413,12 @@ class TestSlotTrackerNode:
 
 
 class _EchoChatModel(BaseChatModel):
-    """用于测试的聊天模型，回显结构化响应。"""
+    """用于测试的聊天模型，支持结构化输出模拟。
+
+    设置 response_text / destination / days / budget / audience 属性
+    来控制 simulated structured output。with_structured_output() 返回一个
+    callable，直接填充相对应的字段，避免依赖 LLM 文本解析。
+    """
 
     response_text: str = ""
     destination: str = ""
@@ -412,6 +440,28 @@ class _EchoChatModel(BaseChatModel):
     @property
     def _identifying_params(self):
         return {"model": "echo-test"}
+
+    def with_structured_output(self, schema, **kwargs):
+        """返回一个 callable，用模型属性模拟结构化输出。"""
+        model = self
+
+        class _StructuredCallable:
+            def invoke(self_, messages, **kw):
+                return type(
+                    "StructuredOutput",
+                    (),
+                    {
+                        "extracted_destination": model.destination,
+                        "extracted_days": model.days,
+                        "extracted_budget": model.budget,
+                        "extracted_audience": model.audience,
+                        "response_text": model.response_text or "好的，已收到",
+                        "user_intent": "providing_info",
+                        "missing_info_hint": [],
+                    },
+                )()
+
+        return _StructuredCallable()
 
 
 class TestConversationGraphIntegration:
@@ -500,11 +550,12 @@ class TestConversationGraphIntegration:
             "user_message": "我想去杭州玩3天，标准预算",
         })
 
-        # 应到达 规划/展示/反馈 阶段
+        # 应到达 规划/展示/反馈 阶段 — 规划必须成功
         planning_output = result.get("planning_output")
-        if planning_output:
-            # 规划已触发
-            assert "plan" in planning_output or "error" in planning_output
+        assert planning_output is not None, "planning_output should be present"
+        assert "plan" in planning_output, (
+            f"planning should succeed, got: {list(planning_output.keys())}"
+        )
 
     def test_state_mapping_for_planning(self):
         """invoke_planning_node 正确地将 ConversationState 映射为 TravelAgentState。"""
@@ -519,8 +570,10 @@ class TestConversationGraphIntegration:
         )
         result = invoke_planning_node(state, rag_service=rag)
         assert "planning_output" in result
-        # 成功时阶段为 "presenting"，失败时保持 "planning"
-        assert result["phase"] in ("presenting", "planning")
+        assert result["phase"] == "presenting", f"expected presenting, got {result['phase']}"
+        assert result["planning_output"].get("plan") is not None, (
+            "plan should be present on success"
+        )
         assert result["plan_generation_count"] >= 1
 
     def test_present_plan_generates_message(self):

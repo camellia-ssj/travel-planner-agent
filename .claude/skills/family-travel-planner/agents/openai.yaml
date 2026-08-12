@@ -1,0 +1,4 @@
+interface:
+  display_name: "Family Travel Planner"
+  short_description: "Plans safer low-intensity family trips"
+  default_prompt: "Plan a low-intensity Hangzhou family trip for parents and kids"

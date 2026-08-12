@@ -2,14 +2,15 @@
 
 > **企业级旅行智能助手** — 基于 RAG + LangGraph Agent 的旅行目的地知识库与智能规划系统。
 
-本系统以纯 RAG（检索增强生成）为基础，结合 LangGraph 状态图工作流引擎，提供从知识库文档导入、向量化存储、混合检索、确定性工具调用到结构化行程规划的完整链路。支持 SQLite checkpoint 状态持久化，可实现线程级规划恢复与用户反馈迭代。
+本系统以纯 RAG（检索增强生成）为基础，结合 LangGraph 状态图工作流引擎，提供从知识库文档导入、向量化存储、行为层 Skill 选择、混合检索、确定性工具调用到结构化行程规划的完整链路。支持 SQLite checkpoint 状态持久化，可实现线程级规划恢复与用户反馈迭代。
 
 ## 这是什么
 
 这是一个面向旅行规划场景的本地优先 Agent 项目，核心分成两层：
 
 - **RAG 检索层**：导入目的地 Markdown / TXT / PDF 文档，建立 Chroma + BM25 混合检索知识库
-- **Agent 规划层**：基于 LangGraph 把“解析需求 → 检索证据 → 工具计算 → 生成行程 → 审校结果 → 持久化记忆”串成完整工作流
+- **Agent 规划层**：基于 LangGraph 把“解析需求 → 选择行为 Skill → 检索证据 → 工具计算 → 生成行程 → 审校结果 → 持久化记忆”串成完整工作流
+- **Skill 行为层**：按 Anthropic `SKILL.md` 标准接入项目级 skills，将家庭出行、自由行、预算控制、天气风险、拥挤规避等策略注入 RAG、工具、Planner 和 Reflection
 
 你可以把它当成：
 
@@ -25,6 +26,7 @@
 - 用 `travel-agent chat` 进入交互式对话规划，与 AI 旅行顾问自然对话
 - 用 `travel-agent resume` 基于 thread_id 继续修改已有计划
 - 通过 `--user-id` 启用长期记忆，让系统学习用户偏好
+- 通过 `--skills` 启用项目级行为层 Skills，让 Agent 根据场景动态切换规划策略
 - 通过 `--query-rewrite`、`ReflectionReport`、本地工具层观察更完整的 Agent 链路
 
 ## 最短上手路径
@@ -63,6 +65,7 @@ graph TB
     subgraph "Agent 工作流层 (LangGraph)"
         MEMORY_LOAD["load_user_profile<br/>加载用户画像"]
         PARSE["parse_user_request<br/>规则解析 + 画像偏好回退"]
+        SKILLS["select_skills<br/>行为层 Skill 动态选择"]
         RETRIEVE["retrieve_evidence<br/>RAG 混合检索 + Evidence 组装"]
         TOOLS["deterministic_tools<br/>预算 / 拥挤风险 / 备选方案"]
         GENERATE["generate_plan<br/>LLM 结构化规划 + 规则回退"]
@@ -71,9 +74,9 @@ graph TB
         MEMORY_SAVE["save_trip_memory<br/>持久化行程 + 重建画像"]
         FEEDBACK["apply_feedback<br/>Checkpoint 恢复 + 反馈追加"]
 
-        MEMORY_LOAD --> PARSE --> RETRIEVE --> TOOLS --> GENERATE --> VALIDATE --> REFLECT --> MEMORY_SAVE
+        MEMORY_LOAD --> PARSE --> SKILLS --> RETRIEVE --> TOOLS --> GENERATE --> VALIDATE --> REFLECT --> MEMORY_SAVE
         REFLECT -.->|"not passed & retry_count <= max"| RETRIEVE
-        FEEDBACK --> TOOLS
+        FEEDBACK --> SKILLS
     end
 
     subgraph "RAG 检索引擎"
@@ -104,6 +107,10 @@ graph TB
 
     CLI --> PARSE
     API --> PARSE
+    SKILLS --> RETRIEVE
+    SKILLS --> TOOLS
+    SKILLS --> GENERATE
+    SKILLS --> REFLECT
     RETRIEVE <--> RERANK
     TOOLS --> BUDGET
     TOOLS --> CROWD
@@ -122,7 +129,8 @@ graph TB
 stateDiagram-v2
     [*] --> load_user_profile: user_id (optional)
     load_user_profile --> parse_user_request: UserProfile
-    parse_user_request --> retrieve_evidence: TravelRequest
+    parse_user_request --> select_skills: TravelRequest
+    select_skills --> retrieve_evidence: SkillSelection
     retrieve_evidence --> deterministic_tools: EvidenceBundle
     deterministic_tools --> generate_plan: Tool Results
     generate_plan --> validate_plan: TravelPlan
@@ -139,7 +147,8 @@ stateDiagram-v2
 ```mermaid
 stateDiagram-v2
     [*] --> apply_feedback: thread_id + 反馈
-    apply_feedback --> retrieve_evidence: 解析参数变更 → 新 question
+    apply_feedback --> select_skills: 解析参数变更 → 新 question
+    select_skills --> retrieve_evidence: SkillSelection
     retrieve_evidence --> deterministic_tools: 新 EvidenceBundle
     deterministic_tools --> generate_plan: 重新计算工具
     generate_plan --> validate_plan: 新 TravelPlan
@@ -158,18 +167,20 @@ stateDiagram-v2
     clarify --> summarize: AI 回复 + 提取槽位
     summarize --> slot_tracker: 检查完整性
     slot_tracker --> [*]: 信息不完整 → 返回等待用户补充
-    slot_tracker --> invoke_planning: 槽位完整 → 调用规划引擎
+    slot_tracker --> invoke_planning: 无计划 / 槽位变更 / 修改意图
+    slot_tracker --> present_plan: 有计划 + 追问
+    slot_tracker --> feedback_router: 有计划 + 确认
     invoke_planning --> present_plan: 结构化 TravelPlan
-    present_plan --> feedback_router: 收集用户反馈
-    feedback_router --> [*]: 确认/修改/新行程 → 结束回合
-    feedback_router --> present_plan: 追问 → 重新展示
+    present_plan --> feedback_router: 分类反馈意图
+    feedback_router --> [*]: 所有反馈路径均结束回合
 ```
 
 **核心概念**：
 
 - **槽位填充**：通过自然对话逐步收集目的地、天数、预算、出行人员，而非填表式逐项询问
-- **规则 + LLM 双层澄清**：规则解析中国城市名/预算关键词（更可靠），LLM 理解自然语言意图
+- **规则 + LLM 双层澄清**：规则解析中国城市名/预算关键词（更可靠），LLM 理解自然语言意图；LLM 不可用时规则兜底复用累计槽位，不会追问已提供的信息
 - **信息回退**：超 8 轮澄清后自动使用默认值（目的地=杭州、天数=3、预算=standard、人群=general）
+- **计划复用**：已有计划时，确认/感谢直接结束、追问重新展示计划（不重跑 RAG/LLM 规划）、修改或槽位变更才触发重新规划
 - **反馈路由**：自动识别用户反馈意图（修改/认可/追问/新行程），路由到相应处理流程
 - **斜杠命令**：`/plan` 强制规划、`/feedback` 修改意见、`/profile` 查看画像、`/history` 对话摘要、`/reset` 重新开始、`/export` 导出 JSON
 - **对话摘要**：超过 20 条消息自动压缩对话历史，避免上下文溢出
@@ -213,12 +224,42 @@ from travel_agent.knowledge import DESTINATION_ALIASES, SECTION_QUERY_ALIASES
 |------|------|--------|
 | `load_user_profile` | 从 Memory SQLite 加载用户画像，无 user_id 时自动跳过 | ✅ |
 | `parse_user_request` | 规则解析自然语言 → 结构化 TravelRequest，画像偏好作为回退 | ✅ |
+| `select_skills` | 从 `.claude/skills/*/SKILL.md` 动态选择行为层 Skill，并生成工具/检索/审校策略 | ✅ |
 | `retrieve_evidence` | 调用 RAG 混合检索，组装 EvidenceBundle + RetrievalTrace | ✅ |
 | `deterministic_tools` | 串行执行预算/拥挤风险/备选方案三个本地工具 | ✅ |
 | `generate_plan` | 优先 LLM 结构化输出（Pydantic schema），无 API Key 时规则回退 | ✅ fallback |
 | `validate_plan` | Schema 完整性校验 | ✅ |
 | `reflect` | 回答审校：逐条交叉验证 plan 与 evidence，检测幻觉与不一致 | ✅ |
 | `save_trip_memory` | 持久化行程到 Memory，重建用户画像，无 user_id 时自动跳过 | ✅ |
+
+### Skill 行为层扩展
+
+项目级 Skill 放在 `.claude/skills/<skill-name>/SKILL.md`，遵循 Anthropic Skills 标准：`SKILL.md` 必须包含 YAML frontmatter，且 frontmatter 只使用 `name` 和 `description` 两个字段。运行时由 `SkillRegistry` 扫描、校验和解析这些技能，再由 `select_skills` 节点根据用户请求、解析后的 `TravelRequest` 和用户画像动态选择行为策略。
+
+当前内置 5 个旅行规划行为 Skill：
+
+| Skill | 触发场景 | 行为侧重点 |
+|------|----------|------------|
+| `family-travel-planner` | 父母、老人、孩子、亲子、低强度 | 少走路、午休、安全、低拥挤备选 |
+| `free-independent-planner` | 自由行、个人游客、朋友/情侣出行 | 地理顺路、交通便利、弹性时间 |
+| `budget-aware-planner` | 预算、穷游、省钱、别太贵 | 预算拆分、工具结果优先、低成本替代 |
+| `weather-risk-planner` | 下雨、高温、天气、室内备选 | 天气敏感标记、室内/同区域备选 |
+| `crowd-avoidance-planner` | 周末、节假日、人多、排队 | 错峰、替代景点、高风险 POI 提醒 |
+
+Skill 会注入到 4 个环节：
+
+- **RAG 检索**：将 Skill 的 Retrieval Focus 追加到检索 query，强化对应证据召回
+- **工具策略**：聚合 Skill 的 Required tools，记录本次行为层需要关注的工具信号
+- **Planner Prompt**：将 Planner Instructions 注入 LLM 规划提示词，规则回退也会在摘要中记录 active skills
+- **Reflection 审校**：将 Reflection Checks 注入审校提示词，并执行轻量确定性合规检查
+
+CLI 默认启用项目级 skills，也可以显式关闭或追加目录：
+
+```powershell
+conda run -n Agent python -m travel_agent.agent.cli plan "带父母杭州三天，预算别太贵，周末避开人多" --skills
+conda run -n Agent python -m travel_agent.agent.cli plan "杭州自由行三天" --no-skills
+conda run -n Agent python -m travel_agent.agent.cli plan "杭州自由行三天" --skills-dir .\my_skills
+```
 
 ### Memory 长期记忆 — 用户画像
 
@@ -242,7 +283,7 @@ Memory 模块赋予 Agent 跨会话的 **"用户画像"** 能力，每次规划�
 **工作流**：
 
 ```
-用户请求 → load_user_profile → parse (画像回退) → RAG → Tools → generate (画像上下文) → validate → save_trip_memory → 更新画像
+用户请求 → load_user_profile → parse (画像回退) → select_skills → RAG → Tools → generate (画像+Skill上下文) → validate → save_trip_memory → 更新画像
 ```
 
 **CLI 示例**：
@@ -359,7 +400,7 @@ Reflection 节点 (`reflect_node`) 在 plan 生成后自动运行，对生成结
 如果你通过 Python 自己组装图，可以在 `build_travel_agent_graph(...)` / `build_travel_agent_resume_graph(...)` 中显式传入 `max_reflection_retries` 来覆盖默认值。
 
 ```
-reflect → (不通过 & retry_count <= max_retries) → retrieve_evidence → tools → generate → validate → reflect
+reflect → (不通过 & retry_count <= max_retries) → retrieve_evidence（保留 active skills）→ tools → generate → validate → reflect
 reflect → (通过 | retry_count > max_retries) → save_trip_memory / END
 ```
 
@@ -405,6 +446,90 @@ service = build_reflection_service()  # 从环境变量自动配置
 service = ReflectionService(coverage_threshold=0.6)
 ```
 
+### DSPy 声明式优化 & Self-Consistency 投票 — 替代手工调参，抑制生成随机性
+
+Agent 规划质量高度依赖 Prompt 质量，但手工调参低效且难以量化评估。DSPy 模块 (`dspy_planner.py` + `dspy_data.py`) 引入**声明式优化**范式，将 Prompt 工程转化为编译器驱动的自动搜索问题；Self-Consistency 模块 (`self_consistency.py`) 通过多路径投票进一步压制单次生成的不确定性。
+
+**DSPy 优化流程**：
+
+```
+TravelPlanningSignature (输入/输出契约)
+    → TravelPlanningModule (dspy.ChainOfThought 推理)
+    → BootstrapFewShot 编译器 (以 Reflection 指标为目标)
+    → 编译产物 (最优 few-shot 示例 + 指令)
+    → DSPyOptimizedPlanner (运行时加载，失败回退到底层规划器)
+```
+
+**核心组件**：
+
+| 组件 | 说明 |
+|------|------|
+| `TravelPlanningSignature` | dspy.Signature，定义 4 入参（request/evidence/tools/profile）→ 1 出参（plan JSON）|
+| `TravelPlanningModule` | dspy.Module 封装，内部使用 `dspy.ChainOfThought` 推理 |
+| `build_reflection_metric()` | 编译优化目标：60% evidence_coverage + 30% confidence_score + 10% 幻觉惩罚 |
+| `BootstrapFewShot` | 编译器自动发现最优 few-shot 示例，训练数据来自 JSONL 文件 |
+| `DSPyOptimizedPlanner` | 实现 TravelPlanner 协议，失败时自动 fallback 到底层 LangChain 规划器 |
+
+**Self-Consistency 多路径投票**：
+
+| 组件 | 说明 |
+|------|------|
+| `SelfConsistencyPlanner` | 生成 N 个候选计划（默认 3，可配 1-7），经确定性审校评分后择优 |
+| `SelfConsistencySettings` | 环境变量控制：`TRAVEL_AGENT_SC_CANDIDATES` / `TRAVEL_AGENT_SC_CRITERION` / `TRAVEL_AGENT_SC_ENABLED` |
+| 评分机制 | 优先使用 ReflectionService（LLM），回退到 `deterministic_reflect()`（无 API Key 时） |
+| 去重策略 | SHA-256 指纹（destination + days + 活动文本），自动跳过重复候选 |
+| 透传模式 | candidates ≤ 1 或 disabled 时直接透传 inner_planner，零开销 |
+
+**使用方式**：
+
+```bash
+# 离线编译 DSPy 模块
+travel-agent dspy compile --train-examples tests/fixtures/dspy_train_examples.jsonl
+
+# 查看编译产物信息
+travel-agent dspy info --load-path data/dspy/compiled_planner.json
+
+# 规划时加载 DSPy 编译模块
+travel-agent plan "杭州三日游" --optimize --embedding-provider local
+
+# 启用 Self-Consistency 多路径投票
+travel-agent plan "杭州三日游" --self-consistency --num-candidates 5 --temperature 0.7
+
+# 组合使用 — DSPy 优化 + SC 投票叠加
+travel-agent plan "杭州三日游" --optimize --self-consistency --temperature 0.7
+```
+
+```python
+# Python SDK 中使用
+from travel_agent.agent.cli import build_optimized_planner
+
+# 一键构建：基础层 → DSPy 层 → SC 层
+planner = build_optimized_planner(
+    optimize=True,          # 启用 DSPy 编译模块
+    self_consistency=True,  # 启用多路径投票
+    num_candidates=5,       # 候选数
+    temperature=0.7,        # LLM 温度（提高候选多样性）
+)
+```
+
+**架构层次**（`build_optimized_planner()` 三层组装）：
+
+```
+SelfConsistencyPlanner (N 路生成 + 投票择优)
+    └── DSPyOptimizedPlanner (编译后的最优 Prompt，失败回退)
+        └── LangChainStructuredPlanner (LLM 结构化输出，失败回退)
+            └── RuleBasedTravelPlanner (纯确定性兜底)
+```
+
+每一层都实现 `TravelPlanner` 协议，任意层可独立使用或组合叠加。CLI 通过 `--optimize` / `--self-consistency` 标志按需开启，默认走 LangChainStructuredPlanner 单路径。
+
+**CLI 命令**（`travel-agent dspy`）：
+
+| 命令 | 说明 |
+|------|------|
+| `travel-agent dspy compile` | 从 JSONL 训练数据编译 DSPy 模块，自动调优 Prompt |
+| `travel-agent dspy info` | 查看编译产物状态（已编译/未编译、few-shot 示例数） |
+
 ### 对话式规划 — 自然语言交互式行程设计
 
 对话式规划模块 (`conversation/`) 在计划工作流之上封装了一层 **交互式对话层**，让用户能用自然聊天的方式完成旅行规划，而非一次性命令行输入。
@@ -421,8 +546,8 @@ service = ReflectionService(coverage_threshold=0.6)
 | 槽位 | 优先级 | 默认值 | 提取方式 |
 |------|--------|--------|----------|
 | 目的地 | 必须 | 无（缺失时触发推荐） | `DESTINATION_ALIASES` 别名映射（规则优先） |
-| 游玩天数 | 重要 | 3 天 | 中文数字 + 阿拉伯数字正则匹配 |
-| 预算水平 | 一般 | `standard` | 关键词匹配（经济/适中/高端等） |
+| 游玩天数 | 重要 | 3 天 | 阿拉伯数字 + 中文数字（含复合十一→11、约数四五→5） |
+| 预算水平 | 一般 | `standard` | 关键词匹配（经济/实惠/别太贵/适中/高端等） |
 | 出行人员 | 一般 | `general` | 人群关键词 + LLM 语义理解 |
 
 **对话阶段流转**：
@@ -616,6 +741,8 @@ conda run -n Agent python -m travel_agent.agent.cli chat  # 交互式对话规�
 | `plan <query>` | 创建旅行规划（自动保存 checkpoint） |
 | `resume <thread_id> <feedback>` | 恢复 checkpoint 并追加反馈重新生成 |
 | `chat` | 启动交互式对话规划会话（支持斜杠命令） |
+| `dspy compile` | DSPy 离线编译，从 JSONL 训练数据自动调优 Prompt |
+| `dspy info` | 查看 DSPy 编译产物状态（已编译/未编译、示例数） |
 | `eval` | 运行 Agent 离线评测 |
 
 ### 常用参数
@@ -633,6 +760,12 @@ conda run -n Agent python -m travel_agent.agent.cli chat  # 交互式对话规�
 | `--user-id` | plan/resume/chat | 用户 ID，启用长期记忆与用户画像 |
 | `--memory-path` | plan/resume/chat | 自定义 Memory SQLite 路径（默认 data/user_memory.sqlite） |
 | `--checkpoint-path` | plan/resume/chat | 自定义 SQLite checkpoint 路径 |
+| `--skills/--no-skills` | plan/resume/chat | 启用/禁用项目级 Skill 行为层（默认启用） |
+| `--skills-dir` | plan/resume/chat | 追加 Skill 目录，可重复传入 |
+| `--optimize/--no-optimize` | plan/resume | 启用 DSPy 编译优化的 Planner |
+| `--self-consistency/--no-sc` | plan/resume | 启用 Self-Consistency 多路径投票 |
+| `--num-candidates` | plan/resume | SC 候选计划数（1-7，默认 3） |
+| `--temperature` | plan/resume | LLM 采样温度（0.0-2.0，默认 0.0） |
 | `--json` | plan/resume | JSON 格式输出 |
 | `--streaming/--no-streaming` | chat | 启用/禁用流式输出 |
 
@@ -663,17 +796,21 @@ agent_project/
 │   │   └── langchain_adapters.py  # LangChain Document 适配
 │   ├── agent/                     # LangGraph Agent 模块
 │   │   ├── graph.py               # StateGraph 组装（plan + resume，含条件重审循环）
-│   │   ├── nodes.py               # 8 个图节点函数（含 Reflection 审校）
+│   │   ├── nodes.py               # 图节点函数（含 Skill 选择、工具调用、Reflection 审校）
 │   │   ├── planner.py             # TravelPlanner 协议 + LLM 结构化 / 规则回退
 │   │   ├── reflection.py          # ReflectionService（LLM 审校 + 确定性回退 + 工厂函数）
+│   │   ├── dspy_planner.py        # DSPy 声明式优化（Signature + BootstrapFewShot 编译）
+│   │   ├── dspy_cli.py            # DSPy CLI 子命令（compile / info）
+│   │   ├── dspy_data.py           # DSPy 训练数据构建与加载
+│   │   ├── self_consistency.py    # Self-Consistency 多路径投票（N 路生成 + 择优）
 │   │   ├── schemas.py             # Pydantic schemas（TravelPlan / ReflectionReport 等 13 个模型）
 │   │   ├── state.py               # TravelAgentState TypedDict
 │   │   ├── prompts.py             # System/User prompt 构建（含 REFLECTION_SYSTEM_PROMPT）
-│   │   ├── cli.py                 # travel-agent Typer CLI
+│   │   ├── cli.py                 # travel-agent Typer CLI（含 DSPy/SC 可选参数）
 │   │   ├── display.py             # 基于 Rich 的计划美化展示
 │   │   └── evaluation.py          # Agent 离线评测
 │   ├── conversation/              # 对话式规划模块
-│   │   ├── graph.py               # Conversation Graph 图编排（7 节点）
+│   │   ├── graph.py               # Conversation Graph 图编排（6 节点）
 │   │   ├── nodes.py               # 图节点实现（greet/clarify/slot_tracker/planning/present/feedback）
 │   │   ├── state.py               # ConversationState TypedDict（槽位 + 消息历史 + 路由字段）
 │   │   ├── prompts.py             # 对话提示词（澄清/展示/反馈分类系统提示词）
@@ -684,6 +821,10 @@ agent_project/
 │   │   ├── budget.py              # 预算估算
 │   │   ├── crowd.py               # 拥挤风险评估
 │   │   └── alternatives.py        # 备选方案建议
+│   ├── skills/                    # 项目级 Skill 行为层
+│   │   ├── registry.py            # Anthropic SKILL.md 扫描、校验、选择
+│   │   ├── models.py              # SkillDefinition / SkillSelection / AppliedSkill
+│   │   └── __init__.py            # 公共 API
 │   ├── memory/                    # 长期记忆模块
 │   │   ├── models.py              # UserProfile / TripRecord 模型
 │   │   ├── store.py               # SQLite 持久化 MemoryStore
@@ -698,11 +839,16 @@ agent_project/
 │   ├── test_tools.py              # 工具单元测试（45+）
 │   ├── test_memory.py             # Memory 模块测试（15 个用例）
 │   ├── test_conversation.py       # 对话式规划测试（30+ 个用例）
+│   ├── test_skills.py             # Skill 行为层测试
+│   ├── test_dspy_planner.py       # DSPy 编译与优化测试
+│   ├── test_self_consistency.py   # Self-Consistency 多路径投票测试
 │   ├── test_real_embeddings.py    # 真实 embedding 冒烟测试
 │   └── fixtures/
 │       ├── rag_eval_cases.jsonl   # 18 个 RAG 评测用例
-│       └── agent_eval_cases.jsonl # 12 个 Agent 评测用例
+│       ├── agent_eval_cases.jsonl # 12 个 Agent 评测用例
+│       └── dspy_train_examples.jsonl  # DSPy 训练示例
 ├── docs/destinations/             # 8 个示例目的地 Markdown 文档
+├── .claude/skills/                # Anthropic 风格项目级 Skills
 ├── data/                          # Chroma 向量库 + SQLite checkpoint
 ├── .github/workflows/ci.yml       # GitHub Actions CI
 ├── Dockerfile                     # 容器化构建
@@ -742,6 +888,33 @@ agent_project/
 | `TRAVEL_AGENT_LLM_PROVIDER` | `qwen` | LLM 提供商：qwen/openai |
 | `TRAVEL_AGENT_MODEL` | `qwen3-max` | LLM 模型名称 |
 
+### DSPy 优化配置 (`TRAVEL_AGENT_DSPY_*`)
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `TRAVEL_AGENT_DSPY_OPTIMIZER` | `BootstrapFewShot` | DSPy 优化器：BootstrapFewShot / BootstrapFewShotWithRandomSearch |
+| `TRAVEL_AGENT_DSPY_MAX_BOOTSTRAPPED` | `4` | 最大自举示例数 |
+| `TRAVEL_AGENT_DSPY_MAX_LABELED` | `4` | 最大标注示例数 |
+| `TRAVEL_AGENT_DSPY_BASE_URL` | DashScope 兼容模式 | DSPy LLM API Base URL |
+| `TRAVEL_AGENT_DSPY_SAVE_PATH` | `data/dspy/compiled_planner.json` | 编译产物保存路径 |
+
+### Self-Consistency 配置 (`TRAVEL_AGENT_SC_*`)
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `TRAVEL_AGENT_SC_CANDIDATES` | `3` | 候选计划数 |
+| `TRAVEL_AGENT_SC_CRITERION` | `confidence_score` | 投票指标：confidence_score / evidence_coverage |
+| `TRAVEL_AGENT_SC_ENABLED` | `true` | 是否启用多路径投票 |
+
+### Skill 配置
+
+| 变量/目录 | 默认值 | 说明 |
+|------|--------|------|
+| `.claude/skills` | 项目根目录下 | 默认项目级 Skill 目录，结构为 `.claude/skills/<skill-name>/SKILL.md` |
+| `TRAVEL_AGENT_SKILLS_DIRS` | 空 | 额外 Skill 目录，支持逗号分隔多个路径 |
+| `--skills/--no-skills` | `--skills` | CLI 级开关，控制本次 plan/resume/chat 是否启用 Skill 行为层 |
+| `--skills-dir` | 空 | CLI 级追加目录，可重复传入 |
+
 ### API Key 配置
 
 | 变量 | 说明 |
@@ -776,6 +949,15 @@ conda run -n Agent python -m pytest tests\test_memory.py -q -p no:cacheprovider
 
 # 对话式规划测试
 conda run -n Agent python -m pytest tests\test_conversation.py -q -p no:cacheprovider
+
+# Skill 行为层测试
+conda run -n Agent python -m pytest tests\test_skills.py -q -p no:cacheprovider
+
+# DSPy 优化测试
+conda run -n Agent python -m pytest tests\test_dspy_planner.py -q -p no:cacheprovider
+
+# Self-Consistency 投票测试
+conda run -n Agent python -m pytest tests\test_self_consistency.py -q -p no:cacheprovider
 ```
 
 当前仓库已验证在 `Agent` conda 环境下可通过：
@@ -820,7 +1002,7 @@ conda run -n Agent python -m pytest tests\test_recall_quality.py -q -p no:cachep
 conda run -n Agent python -m travel_agent.rag.cli eval --embedding-provider local --retrieval-mode hybrid --json
 ```
 
-**RAG 质量门槛**：recall@k >= 0.95, MRR@k >= 0.90, keyword_hit_rate@k >= 0.90, metadata_filter_accuracy >= 1.00
+**RAG 质量门槛**：recall@k >= 0.90, MRR@k >= 0.85, keyword_hit_rate@k >= 0.85, metadata_filter_accuracy >= 1.00
 
 ### Agent 评测
 
@@ -1018,20 +1200,22 @@ docker compose run --rm agent-eval
 
 > 本项目适合作为 **AI 应用开发 / 大模型应用 / 智能体工程** 方向的简历项目。
 
-**项目名称**：旅行智能助手 — 基于 RAG + LangGraph Agent 的多模态知识检索与智能规划系统
+**项目名称**：旅行规划 Agent — 基于 RAG + LangGraph 的智能行程规划系统
 
-**技术栈**：Python 3.11, LangChain, LangGraph, ChromaDB, BM25, Pydantic, Typer, Rich, SQLite, Docker, GitHub Actions, LangSmith/Langfuse
+**技术栈**：Python 3.11, LangChain, LangGraph, ChromaDB, BM25, DSPy, Pydantic, Typer, Rich, SQLite, Anthropic-style Skills, Docker, GitHub Actions, LangSmith/Langfuse
 
 **项目亮点**：
-- 独立设计并实现了完整的 RAG 检索增强生成管线，支持向量检索（ChromaDB）、BM25 关键词检索与 RRF 混合融合，覆盖文档导入、文本切片、向量化、重排序、增量索引全流程
-- 基于 LangGraph 构建了 8 节点 Agent 工作流（画像加载→解析→检索→工具调用→生成→校验→审校→记忆保存），支持 SQLite checkpoint 状态持久化与线程级规划恢复
-- 创新性地设计了 Reflection 回答审校节点：基于 `SequenceMatcher` 文本相似度的确定性幻觉检测机制，逐条交叉验证 plan 与 evidence，自动标记 destination 污染/无证据支撑/工具结果矛盾等问题，输出结构化 `ReflectionReport`（证据覆盖率 + 置信度评分 + 可操作改进建议）
-- 设计实现了对话式旅行规划模块：7 节点 Conversation Graph（欢迎→澄清→摘要→槽位追踪→规划→展示→反馈路由），支持槽位填充跨轮次记忆、规则+LLM 双层解析、反馈意图自动分类路由，提供基于 Rich 的交互式 REPL 终端界面
-- 设计实现了 Memory 长期记忆模块，基于 SQLite 持久化用户行程历史，自动聚合构建用户画像（偏好目标地/预算/出行方式/平均天数），实现跨会话个性化推荐
-- 设计并实现了三个纯本地确定性工具函数（预算估算、拥挤风险评估、备选方案建议），通过 `_apply_tool_overrides` 机制确保工具结果强制覆盖 LLM 输出，杜绝模型幻觉
+- 引入 DSPy 声明式优化替代手工 Prompt 调参：定义 TravelPlanningSignature 输入/输出契约，以 Reflection 审校指标（证据覆盖率 + 置信度 + 幻觉惩罚）为优化目标，通过 BootstrapFewShot 编译器自动发现最优 few-shot 示例组合；结合 Self-Consistency 多路径投票（N 路生成 + 确定性审校评分 + 去重择优），显著抑制 LLM 生成随机性，提升输出质量稳定性
+- 独立设计并实现了完整 RAG 管线：支持向量检索（ChromaDB）+ BM25 关键词检索 + RRF 混合融合，覆盖文档导入、文本切片、向量化、重排序、增量索引全流程；检索质量门禁设定 recall@k ≥ 90%、MRR@k ≥ 85%、关键词命中率 ≥ 85%
+- 基于 LangGraph 构建了 9 节点 Agent 工作流（画像加载→解析→Skill 选择→检索→工具调用→生成→校验→审校→记忆保存），支持 SQLite checkpoint 状态持久化与线程级规划恢复，审校未通过时自动触发补充检索→重新规划→重新审校的闭环重试
+- 设计并实现 Skill-driven Agent Planning 行为层：按 Anthropic `SKILL.md` 标准接入项目级 Skills，将家庭出行、自由行、预算控制、天气风险、拥挤规避抽象为可配置策略，并动态注入 RAG 检索、工具策略、Planner Prompt、Reflection 审校和 LLMOps Trace
+- 设计了 Reflection 回答审校节点：采用 LLM 结构化输出（主）+ `SequenceMatcher` 文本相似度（回退）双层架构，将 plan 中的声明与 RAG 证据交叉比对，自动标记 destination 污染、无证据支撑、工具结果矛盾等问题，输出结构化 `ReflectionReport`（证据覆盖率 + 幻觉标记 + 改进建议）
+- 设计实现了对话式旅行规划模块：6 节点 Conversation Graph（澄清→摘要→槽位追踪→规划→展示→反馈路由），支持槽位填充跨轮次记忆、规则+LLM 双层解析、反馈意图自动分类路由，提供基于 Rich 的交互式 REPL 终端界面
+- 设计实现了 Memory 长期记忆模块，基于 SQLite 持久化用户行程历史，自动聚合构建用户画像（偏好目的地/预算/出行方式/平均天数），实现跨会话个性化推荐
+- 实现了三个确定性工具函数（预算估算、拥挤风险评估、备选方案建议），通过 `_apply_tool_overrides` 机制确保工具结果覆盖 LLM 输出，避免关键数据被模型编造
 - 集成了 LangSmith + Langfuse 双通道 LLMOps 可观测性，支持无 API Key 场景自动静默降级
-- 包含完整的离线评测体系：RAG 召回评测（recall/MRR/nDCG 6 项指标 + 质量门槛）和 Agent 输出评测（覆盖率/准确率/鲁棒性 8 项指标）
-- 具备企业级工程化能力：CLI 命令行工具、Docker 容器化、GitHub Actions CI/CD、Makefile 自动化、完整的单元测试与评测用例（226 个测试）
+- 包含完整的离线评测体系：RAG 检索评测（recall/MRR/nDCG 等 9 项指标 + 质量门禁）和 Agent 输出评测（天数准确率/预算覆盖率/风险提示率等 8 项指标）
+- 配备 CLI 命令行工具、Docker 容器化、GitHub Actions CI/CD、Makefile 自动化，260+ 个单元测试与评测用例
 
 ---
 

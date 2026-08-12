@@ -72,6 +72,39 @@ CHINESE_DAY_NUMBERS: dict[str, int] = {
     "六": 6, "七": 7, "八": 8, "九": 9, "十": 10,
 }
 
+
+def chinese_numeral_to_int(chinese: str) -> int:
+    """将中文数字字符串（1-99）转换为整数。
+
+    支持单个数字（一→1，十→10）和复合表达：
+    - 十X → 10+X（十一→11，十九→19）
+    - X十 → X*10（二十→20，九十→90）
+    - X十Y → X*10+Y（二十一→21，九十九→99）
+    - XY 连续约数 → Y（两三→3，四五→5，七八→8）
+
+    无法解析时返回 1 作为兜底。
+    """
+    if not chinese:
+        return 1
+    if chinese in CHINESE_DAY_NUMBERS:
+        return CHINESE_DAY_NUMBERS[chinese]
+    # 十X → 10 + X
+    if chinese.startswith("十"):
+        return 10 + CHINESE_DAY_NUMBERS.get(chinese[1:], 0)
+    # X十 → X * 10
+    if chinese.endswith("十"):
+        return CHINESE_DAY_NUMBERS.get(chinese[:1], 1) * 10
+    # X十Y → X * 10 + Y
+    parts = chinese.split("十")
+    if len(parts) == 2:
+        tens = CHINESE_DAY_NUMBERS.get(parts[0], 1)
+        ones = CHINESE_DAY_NUMBERS.get(parts[1], 0)
+        return tens * 10 + ones
+    # 连续约数（两三→3，四五→5）——取后一个较大的值
+    if len(chinese) == 2 and all(ch in CHINESE_DAY_NUMBERS for ch in chinese):
+        return CHINESE_DAY_NUMBERS[chinese[1]]
+    return 1
+
 # ---------------------------------------------------------------------------
 # 周末 / 节假日检测关键词
 # ---------------------------------------------------------------------------

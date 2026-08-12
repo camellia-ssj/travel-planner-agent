@@ -16,13 +16,15 @@ from travel_agent.agent.schemas import (
 )
 from travel_agent.agent.state import TravelAgentState
 from travel_agent.knowledge import (
-    CHINESE_DAY_NUMBERS,
     DESTINATION_ALIASES,
     PEOPLE_IMPLICIT,
     WEEKEND_HOLIDAY_PATTERN,
+    chinese_numeral_to_int,
 )
 from travel_agent.memory.models import TripRecord, UserProfile
 from travel_agent.rag.models import EvidenceBundle, SearchResult
+from travel_agent.skills.models import SkillSelection
+from travel_agent.skills.registry import SkillRegistry
 from travel_agent.tools.alternatives import suggest_alternatives
 from travel_agent.tools.budget import estimate_budget
 from travel_agent.tools.crowd import assess_crowd_risk
@@ -67,7 +69,7 @@ def parse_user_request_node(state: TravelAgentState) -> TravelAgentState:
     destination = destination_override if destination_override is not None else parsed_destination
     days = days_override if days_override is not None else parsed_days
     parsed_audience = _parse_audience(question)
-    parsed_budget = _parse_budget_preference(question)
+    parsed_budget = _parse_budget_preference(question) or "standard"
 
     # 使用画像作为未指定字段的回退值
     profile = state.get("user_profile")
@@ -139,7 +141,7 @@ def apply_feedback_node(state: TravelAgentState) -> TravelAgentState:
 
     new_destination = _parse_destination(feedback)
     new_days = _parse_days(feedback)
-    new_budget = _parse_budget_preference(feedback)
+    new_budget = _parse_budget_preference(feedback) or "standard"
 
     updated_fields: dict[str, object] = {}
     if new_destination and new_destination != old_request.destination:
@@ -165,6 +167,23 @@ def apply_feedback_node(state: TravelAgentState) -> TravelAgentState:
     return result
 
 
+def select_skills_node(
+    state: TravelAgentState,
+    skill_registry: SkillRegistry | None,
+) -> TravelAgentState:
+    """Select project-level behavior skills for the parsed travel request."""
+
+    request = state.get("request")
+    if request is None or skill_registry is None:
+        return {"active_skills": SkillSelection()}
+    selection = skill_registry.select_skills(
+        request=request,
+        question=state.get("question", request.raw_query),
+        user_profile=state.get("user_profile"),
+    )
+    return {"active_skills": selection}
+
+
 def retrieve_evidence_node(
     state: TravelAgentState,
     rag_service: EvidenceService,
@@ -174,12 +193,13 @@ def retrieve_evidence_node(
     question = state.get("question", "")
     request = state.get("request")
     destination = request.destination if request and request.destination else None
+    retrieval_query = _query_with_skill_focus(question, state.get("active_skills"))
 
     # 从多个板块获取证据，使规划器能够跨天变化内容。
     # 我们先请求行程相关板块，然后回退到更广泛的未过滤检索，
     # 这样查询中的预算/拥挤风险关键词不会使规划器缺少行程内容。
     evidence = rag_service.retrieve_evidence(
-        question,
+        retrieval_query,
         destination=destination,
         top_k=10,
     )
@@ -191,7 +211,7 @@ def retrieve_evidence_node(
     ]
     if len(itinerary_results) < 3:
         supplementary = rag_service.retrieve_evidence(
-            question,
+            retrieval_query,
             destination=destination,
             section="itinerary",
             top_k=8,
@@ -242,11 +262,17 @@ def tool_node(state: TravelAgentState) -> TravelAgentState:
 
     request = state.get("request")
     evidence = state.get("evidence")
+    active_skills = state.get("active_skills")
+    required_tools = active_skills.required_tools() if active_skills is not None else []
     if request is None or evidence is None:
         return {
             "tool_budget": None,
             "tool_crowd_risk": None,
             "tool_alternatives": None,
+            "tool_policy": {
+                "required_tools": required_tools,
+                "active_skills": active_skills.names if active_skills is not None else [],
+            },
         }
 
     question = state.get("question", request.raw_query if request else "")
@@ -273,6 +299,10 @@ def tool_node(state: TravelAgentState) -> TravelAgentState:
         "tool_budget": budget,
         "tool_crowd_risk": crowd,
         "tool_alternatives": alternatives,
+        "tool_policy": {
+            "required_tools": required_tools,
+            "active_skills": active_skills.names if active_skills is not None else [],
+        },
     }
 
 
@@ -303,6 +333,7 @@ def generate_plan_with_planner_node(
         user_feedback=state.get("user_feedback", []),
         tool_results=tool_results,
         user_profile=user_profile,
+        active_skills=state.get("active_skills"),
     )
     return {"plan": plan}
 
@@ -337,7 +368,7 @@ def _parse_destination(text: str) -> str:
 
 
 _DAYS_DIGIT_RE = re.compile(r"(\d+)\s*(?:天|日|days?|d)", re.IGNORECASE)
-_DAYS_CHINESE_RE = re.compile(r"([一二两三四五六七八九十])\s*(?:天|日)")
+_DAYS_CHINESE_RE = re.compile(r"([一二两三四五六七八九十]+)\s*(?:天|日)")
 
 
 def _days_explicitly_mentioned(text: str) -> bool:
@@ -355,7 +386,7 @@ def _parse_days(text: str) -> int:
         return max(1, int(digit_match.group(1)))
     chinese_match = _DAYS_CHINESE_RE.search(text)
     if chinese_match:
-        return CHINESE_DAY_NUMBERS[chinese_match.group(1)]
+        return chinese_numeral_to_int(chinese_match.group(1))
     return 1
 
 
@@ -376,20 +407,27 @@ def _parse_audience(text: str) -> list[str]:
 
 
 def _parse_budget_preference(text: str) -> str:
+    """解析预算偏好关键词，未提及时返回空字符串。
+
+    调用方负责提供默认值（通常为 "standard"）。
+    """
     normalized = text.lower()
     if any(
         token in normalized
-        for token in ("省钱", "经济", "低预算", "穷游", "cheap", "economy", "budget-friendly")
+        for token in (
+            "省钱", "经济", "低预算", "穷游", "cheap", "economy", "budget-friendly",
+            "别太贵", "不要太贵", "便宜", "实惠", "不贵",
+        )
     ):
         return "economy"
     if any(token in normalized for token in ("舒适", "高端", "豪华", "luxury", "premium")):
         return "premium"
     if any(
         token in normalized
-        for token in ("适中", "中等", "standard", "mid", "mid-range", "moderate")
+        for token in ("适中", "中等", "标准", "standard", "mid", "mid-range", "moderate")
     ):
         return "standard"
-    return "standard"
+    return ""
 
 
 def _detect_weekend_holiday(text: str) -> bool:
@@ -402,13 +440,13 @@ _PEOPLE_COUNT_PATTERNS = [
     (re.compile(r"(\d+)\s*个?\s*人"), lambda m: int(m.group(1))),
     (re.compile(r"我们\s*(\d+)\s*个"), lambda m: int(m.group(1))),
     (re.compile(r"([\d]+)\s*(?:位|名|adults?|people|persons?)"), lambda m: int(m.group(1))),
-    (re.compile(r"一家\s*([\d一二两三])\s*口"), lambda m: _cn_digit_to_int(m.group(1))),
-    (re.compile(r"([一二两三四五六七八九十])\s*个?\s*人"), lambda m: _cn_digit_to_int(m.group(1))),
+    (re.compile(r"一家\s*([\d一二两三]+)\s*口"), lambda m: _cn_digit_to_int(m.group(1))),
+    (re.compile(r"([一二两三四五六七八九十]+)\s*个?\s*人"), lambda m: _cn_digit_to_int(m.group(1))),
 ]
 
 
 def _cn_digit_to_int(ch: str) -> int:
-    return CHINESE_DAY_NUMBERS.get(ch, 1)
+    return chinese_numeral_to_int(ch)
 
 
 def _parse_people_count(text: str, audience: list[str]) -> int:
@@ -562,6 +600,21 @@ def _avg_score(results: list[SearchResult]) -> float:
     return round(sum(r.score for r in results) / len(results), 4)
 
 
+def _query_with_skill_focus(question: str, active_skills: SkillSelection | None) -> str:
+    """Append selected skill retrieval focus without changing parsed constraints."""
+
+    if active_skills is None or not active_skills.active_skills:
+        return question
+    focus = active_skills.retrieval_focus_text()
+    if not focus:
+        return question
+    return (
+        f"{question}\n\n"
+        "Skill retrieval focus:\n"
+        f"{focus}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # 审查 / 事实性校验节点
 # ---------------------------------------------------------------------------
@@ -601,11 +654,21 @@ def reflect_node(
     }
 
     if reflection_service is not None and hasattr(reflection_service, "reflect"):
-        report = reflection_service.reflect(plan, evidence, tool_results)  # type: ignore[union-attr]
+        report = reflection_service.reflect(  # type: ignore[union-attr]
+            plan,
+            evidence,
+            tool_results,
+            active_skills=state.get("active_skills"),
+        )
     else:
         from travel_agent.agent.reflection import deterministic_reflect
 
-        report = deterministic_reflect(plan, evidence, tool_results)
+        report = deterministic_reflect(
+            plan,
+            evidence,
+            tool_results,
+            active_skills=state.get("active_skills"),
+        )
 
     retry_count = state.get("reflection_retry_count", 0)
     if not report.passed:

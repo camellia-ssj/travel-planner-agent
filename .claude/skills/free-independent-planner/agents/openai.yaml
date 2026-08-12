@@ -1,0 +1,4 @@
+interface:
+  display_name: "Free Independent Planner"
+  short_description: "Plans flexible self-guided travel routes"
+  default_prompt: "Plan a flexible independent travel route with transit-aware days"

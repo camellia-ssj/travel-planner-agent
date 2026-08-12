@@ -39,6 +39,7 @@ data/*.sqlite
 data/*.sqlite3
 data/*.db
 data/chroma/
+data/dspy/
 data/eval_chroma/
 data/test_tmp/
 .tmp_pytest/

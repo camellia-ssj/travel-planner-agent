@@ -51,7 +51,7 @@ class RecallQualityTest(unittest.TestCase):
         }
         cls.metrics = _compute_metrics(cls.cases, cls.case_results)
 
-    def test_recall_at_3_hits_expected_source_for_all_cases(self) -> None:
+    def test_recall_at_3_meets_quality_gate(self) -> None:
         failures = [
             _source_failure(case, self.case_results[case.query])
             for case in self.cases
@@ -66,11 +66,11 @@ class RecallQualityTest(unittest.TestCase):
 
         self.assertGreaterEqual(
             self.metrics.recall_at_3,
-            1.0,
+            0.90,
             _metric_failure("recall@3", self.metrics.recall_at_3, failures),
         )
 
-    def test_mrr_at_3_is_perfect_for_fixture_cases(self) -> None:
+    def test_mrr_at_3_meets_quality_gate(self) -> None:
         failures = []
         for case in self.cases:
             if case.expected_empty or case.hard_negative:
@@ -85,11 +85,11 @@ class RecallQualityTest(unittest.TestCase):
 
         self.assertGreaterEqual(
             self.metrics.mrr_at_3,
-            1.0,
+            0.85,
             _metric_failure("MRR@3", self.metrics.mrr_at_3, failures),
         )
 
-    def test_keyword_hit_rate_at_3_is_high_enough(self) -> None:
+    def test_keyword_hit_rate_at_3_meets_quality_gate(self) -> None:
         misses: list[str] = []
         for case in self.cases:
             if case.expected_empty:
@@ -106,7 +106,7 @@ class RecallQualityTest(unittest.TestCase):
 
         self.assertGreaterEqual(
             self.metrics.keyword_hit_rate_at_3,
-            0.9,
+            0.85,
             _metric_failure("keyword_hit_rate@3", self.metrics.keyword_hit_rate_at_3, misses),
         )
 

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Weather Risk Planner"
+  short_description: "Plans routes with weather backups"
+  default_prompt: "Plan a route with indoor rainy-day alternatives"

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Budget Aware Planner"
+  short_description: "Plans trips with clear cost control"
+  default_prompt: "Plan an affordable three-day trip with category budget details"

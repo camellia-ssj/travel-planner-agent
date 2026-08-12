@@ -16,7 +16,6 @@ from travel_agent.agent.reflection import ReflectionService
 from travel_agent.agent.schemas import TravelPlan
 from travel_agent.conversation.prompts import (
     CLARIFICATION_SYSTEM_PROMPT,
-    FEEDBACK_CLASSIFICATION_PROMPT,
     PRESENTATION_SYSTEM_PROMPT,
 )
 from travel_agent.conversation.slot_tracker import (
@@ -27,8 +26,7 @@ from travel_agent.conversation.slot_tracker import (
     is_vague_request,
 )
 from travel_agent.conversation.state import ConversationState
-from travel_agent.memory.models import UserProfile
-from travel_agent.rag.models import EvidenceBundle
+from travel_agent.skills.registry import SkillRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -48,45 +46,6 @@ class ClarificationOutput(BaseModel):
         description="用户意图: providing_info/asking_question/ready_to_plan/vague",
     )
     missing_info_hint: list[str] = Field(default_factory=list, description="还缺少哪些信息")
-
-
-# ── 欢迎节点 ─────────────────────────────────────────────────────
-
-
-def greet_node(state: ConversationState) -> dict[str, object]:
-    """根据用户画像生成开场问候语。"""
-    profile = state.get("user_profile")
-    if profile is not None and getattr(profile, "total_trips", 0) > 0:
-        last_dest = getattr(profile, "last_destination", "")
-        total = getattr(profile, "total_trips", 0)
-        if last_dest:
-            greeting = (
-                f"欢迎回来！👋 我是您的旅行规划顾问小旅。"
-                f"之前您去过{last_dest}，已经累计{total}次旅行了。"
-                f"这次想去哪里呢？"
-            )
-        else:
-            greeting = (
-                f"欢迎回来！👋 我是您的旅行规划顾问小旅。"
-                f"您已经累计{total}次旅行了。这次想去哪里呢？"
-            )
-    else:
-        greeting = (
-            "您好！👋 我是您的旅行规划顾问**小旅**。\n\n"
-            "我可以帮您规划旅行路线，提供预算估算、拥挤风险提醒和备选方案。\n"
-            "只需告诉我您的需求，比如：\n"
-            "- 目的地（如杭州、成都、东京...）\n"
-            "- 游玩天数\n"
-            "- 预算偏好（经济/标准/高端）\n"
-            "- 出行人员（亲子/情侣/朋友...）\n\n"
-            "现在，告诉我您想去哪里吧！"
-        )
-
-    return {
-        "messages": [AIMessage(content=greeting)],
-        "phase": "clarifying",
-        "clarification_turn_count": 0,
-    }
 
 
 # ── 澄清节点 ───────────────────────────────────────────────────
@@ -161,10 +120,10 @@ def clarify_node(
     elif prev_days:
         final_slots["clarified_days"] = prev_days
 
-    if llm_budget:
-        final_slots["clarified_budget"] = llm_budget
-    elif rule_slots.get("clarified_budget"):
+    if rule_slots.get("clarified_budget"):
         final_slots["clarified_budget"] = rule_slots["clarified_budget"]
+    elif llm_budget:
+        final_slots["clarified_budget"] = llm_budget
     elif prev_budget:
         final_slots["clarified_budget"] = prev_budget
 
@@ -188,12 +147,15 @@ def clarify_node(
 
 def _build_fallback_response(slots: dict[str, object]) -> str:
     """当 LLM 输出为空时，构建通用的兜底回复。"""
-    dest = slots.get("clarified_destination", "")
+    from travel_agent.knowledge import DESTINATION_DISPLAY_NAMES
+
+    dest = str(slots.get("clarified_destination", ""))
     days = slots.get("clarified_days")
+    display = DESTINATION_DISPLAY_NAMES.get(dest, dest)
     if dest and days:
-        return f"好的，{dest}{days}天的旅行，我来为您规划！"
+        return f"好的，{display} {days} 天的旅行，我来为您规划！"
     if dest:
-        return f"明白了，想去{dest}。请问计划玩几天呢？"
+        return f"明白了，想去{display}。请问计划玩几天呢？"
     return "请问您想去哪里旅行呢？我可以帮您推荐几个热门目的地~"
 
 
@@ -246,6 +208,7 @@ def invoke_planning_node(
     planner: TravelPlanner | None = None,
     memory_service: MemoryService | None = None,
     reflection_service: ReflectionService | None = None,
+    skill_registry: SkillRegistry | None = None,
 ) -> dict[str, object]:
     """将对话槽位映射到 TravelAgentState 并调用规划图。
 
@@ -281,6 +244,7 @@ def invoke_planning_node(
         planner=planner,
         memory_service=memory_service,
         reflection_service=reflection_service,
+        skill_registry=skill_registry,
     )
 
     try:
@@ -317,6 +281,10 @@ def invoke_planning_node(
         "reflection_report": (
             result["reflection_report"].model_dump() if result.get("reflection_report") else None
         ),
+        "active_skills": (
+            result["active_skills"].model_dump() if result.get("active_skills") else None
+        ),
+        "tool_policy": result.get("tool_policy", {}),
         "is_valid": result.get("is_valid", False),
         "validation_errors": result.get("validation_errors", []),
         "plan_summary": plan_summary,
@@ -369,46 +337,55 @@ def present_plan_node(
     }
 
 
+# ── 反馈意图分类（共享辅助函数）─────────────────────────────
+
+# 修改意图关键词
+_MODIFY_KEYWORDS: frozenset[str] = frozenset({
+    "改", "换", "调整", "修改", "变成", "换成", "不要", "去掉",
+    "加一天", "减一天", "多一天", "少一天", "太贵", "便宜",
+    "贵一点", "慢一点", "少走", "多走", "增加", "减少",
+})
+# 确认意图关键词
+_APPROVE_KEYWORDS: frozenset[str] = frozenset({
+    "好的", "可以", "不错", "很好", "满意", "就这样", "没问题",
+    "行", "ok", "yes", "好", "棒", "完美", "喜欢",
+    "谢谢", "感谢", "辛苦了",
+    "再见", "拜拜", "bye", "晚安", "结束", "退出",
+})
+# 新建行程意图关键词
+_NEW_TRIP_KEYWORDS: frozenset[str] = frozenset({
+    "重新", "换一个目的地", "换地方", "再去", "下一次", "另一个",
+    "新行程", "全新", "换个城市", "不去了",
+})
+
+
+def classify_feedback_intent(user_message: str) -> str:
+    """根据用户消息文本分类反馈意图。
+
+    返回 "modify" / "new_trip" / "approve" / "question"。
+    此函数供 feedback_router_node 和 _route_after_slot_tracker 共用。
+    """
+    from travel_agent.agent.nodes import _has_change_intent
+
+    text = user_message.strip().lower()
+
+    if _has_change_intent(user_message):
+        return "modify"
+    if any(kw in text for kw in _NEW_TRIP_KEYWORDS):
+        return "new_trip"
+    if any(kw in text for kw in _MODIFY_KEYWORDS):
+        return "modify"
+    if any(kw in text for kw in _APPROVE_KEYWORDS):
+        return "approve"
+    return "question"
+
+
 # ── 反馈路由节点 ───────────────────────────────────────────────
 
 
 def feedback_router_node(state: ConversationState) -> dict[str, object]:
     """分类用户反馈意图并决定下一步。"""
-    user_message = state.get("user_message", "").strip().lower()
-
-    from travel_agent.agent.nodes import _has_change_intent
-
-    action: str
-
-    # 修改意图关键词
-    modify_keywords = {
-        "改", "换", "调整", "修改", "变成", "换成", "不要", "去掉",
-        "加一天", "减一天", "多一天", "少一天", "太贵", "便宜",
-        "贵一点", "慢一点", "少走", "多走", "增加", "减少",
-    }
-    # 确认意图关键词
-    approve_keywords = {
-        "好的", "可以", "不错", "很好", "满意", "就这样", "没问题",
-        "行", "ok", "yes", "好", "棒", "完美", "喜欢",
-        "谢谢", "感谢", "辛苦了",
-    }
-    # 新建行程意图关键词
-    new_trip_keywords = {
-        "重新", "换一个目的地", "换地方", "再去", "下一次", "另一个",
-        "新行程", "全新", "换个城市", "不去了",
-    }
-
-    if _has_change_intent(state.get("user_message", "")):
-        action = "modify"
-    elif any(kw in user_message for kw in new_trip_keywords):
-        action = "new_trip"
-    elif any(kw in user_message for kw in modify_keywords):
-        action = "modify"
-    elif any(kw in user_message for kw in approve_keywords):
-        action = "approve"
-    else:
-        action = "question"
-
+    action = classify_feedback_intent(state.get("user_message", ""))
     return {
         "feedback_action": action,
         "phase": "feedback",
@@ -448,7 +425,11 @@ def conversation_summary_node(
             SystemMessage(content="请用2-3句话总结以下对话的关键信息（目的地、天数、预算、人员等）："),
             HumanMessage(content=new_summary),
         ])
-        summary = summary_response.content if hasattr(summary_response, "content") else str(summary_response)
+        summary = (
+            summary_response.content
+            if hasattr(summary_response, "content")
+            else str(summary_response)
+        )
     except Exception:
         summary = f"对话摘要: 讨论了{state.get('clarified_destination', '未知目的地')}旅行"
 
@@ -555,10 +536,15 @@ def _rule_based_clarify(
     rule_slots: dict[str, object],
     merged_slots: dict[str, object],
 ) -> ClarificationOutput:
-    """LLM 调用失败时的规则兜底澄清。"""
-    dest = rule_slots.get("clarified_destination", "")
-    days = rule_slots.get("clarified_days")
-    audience = rule_slots.get("clarified_audience", [])
+    """LLM 调用失败时的规则兜底澄清。
+
+    从 merged_slots（累计状态 = 历史槽位 + 本轮新槽位）读取已收集的信息，
+    避免因只看本轮 rule_slots 而追问用户已经给过的内容。
+    本轮新提取的槽位优先（已在 merged_slots 中被 rule_slots 覆盖）。
+    """
+    dest = str(merged_slots.get("clarified_destination", ""))
+    days = merged_slots.get("clarified_days")
+    audience = merged_slots.get("clarified_audience")
 
     missing: list[str] = []
     if not dest:
@@ -574,9 +560,9 @@ def _rule_based_clarify(
         response = "收到！信息很完整，我这就为您规划行程~"
 
     return ClarificationOutput(
-        extracted_destination=str(dest),
+        extracted_destination=dest,
         extracted_days=int(days) if days else None,
-        extracted_budget=str(rule_slots.get("clarified_budget", "")),
+        extracted_budget=str(merged_slots.get("clarified_budget", "")),
         extracted_audience=list(audience) if audience else [],
         response_text=response,
         user_intent="ready_to_plan" if not missing else "providing_info",
@@ -676,10 +662,13 @@ def _build_fallback_presentation(
 
     if budget:
         lines.append(f"### 预算概览（{budget.get('budget_level', '')}）")
-        lines.append(f"- 总计: {budget.get('total', 0):.0f} CNY，日均 {budget.get('daily_average', 0):.0f} CNY")
+        lines.append(
+            f"- 总计: {budget.get('total', 0):.0f} CNY，"
+            f"日均 {budget.get('daily_average', 0):.0f} CNY"
+        )
 
     if crowd:
-        lines.append(f"### 拥挤风险")
+        lines.append("### 拥挤风险")
         lines.append(f"- 整体风险: {crowd.get('overall_risk', '')}")
         advice = crowd.get("advice", "")
         if advice:
@@ -688,7 +677,7 @@ def _build_fallback_presentation(
     if alternatives:
         weather = alternatives.get("weather_note", "")
         if weather:
-            lines.append(f"### 天气/备选")
+            lines.append("### 天气/备选")
             lines.append(f"- {weather}")
 
     lines.append("")

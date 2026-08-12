@@ -7,12 +7,11 @@
 from __future__ import annotations
 
 from travel_agent.agent.nodes import (
+    _days_explicitly_mentioned,
     _parse_audience,
     _parse_budget_preference,
     _parse_days,
     _parse_destination,
-    _has_change_intent,
-    _days_explicitly_mentioned,
 )
 from travel_agent.conversation.state import ConversationState
 
@@ -54,7 +53,8 @@ def extract_slots(text: str, state: ConversationState) -> dict[str, object]:
         updates["clarified_audience"] = audience
 
     budget = _parse_budget_preference(text)
-    updates["clarified_budget"] = budget
+    if budget:
+        updates["clarified_budget"] = budget
 
     return updates
 
@@ -78,7 +78,8 @@ def _slot_extraction_function(
         result["clarified_audience"] = audience
 
     budget = _parse_budget_preference(text)
-    result["clarified_budget"] = budget
+    if budget:
+        result["clarified_budget"] = budget
 
     return result
 

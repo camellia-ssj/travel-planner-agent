@@ -1,0 +1,4 @@
+interface:
+  display_name: "Crowd Avoidance Planner"
+  short_description: "Plans trips that avoid peak crowds"
+  default_prompt: "Plan a holiday itinerary that avoids crowded popular POIs"

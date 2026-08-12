@@ -14,6 +14,7 @@ from travel_agent.agent.schemas import (
 )
 from travel_agent.memory.models import UserProfile
 from travel_agent.rag.models import EvidenceBundle
+from travel_agent.skills.models import SkillSelection
 
 
 class TravelAgentState(TypedDict, total=False):
@@ -28,6 +29,8 @@ class TravelAgentState(TypedDict, total=False):
     user_id: str
     thread_id: str
     user_profile: UserProfile
+    active_skills: SkillSelection
+    tool_policy: dict[str, object]
     request: TravelRequest
     evidence: EvidenceBundle
     tool_budget: BudgetEstimate

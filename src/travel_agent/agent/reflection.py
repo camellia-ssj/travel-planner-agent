@@ -22,6 +22,7 @@ from travel_agent.agent.schemas import (
 )
 from travel_agent.knowledge import DESTINATION_ALIASES
 from travel_agent.rag.models import EvidenceBundle
+from travel_agent.skills.models import SkillSelection
 
 # ---------------------------------------------------------------------------
 # 基于LLM的审查服务
@@ -52,20 +53,22 @@ class ReflectionService:
         plan: TravelPlan,
         evidence: EvidenceBundle,
         tool_results: dict[str, object] | None = None,
+        active_skills: SkillSelection | None = None,
     ) -> ReflectionReport:
         """运行事实性审查并返回结构化报告。"""
         if self._chat_model is not None:
             try:
-                return self._llm_reflect(plan, evidence, tool_results)
+                return self._llm_reflect(plan, evidence, tool_results, active_skills)
             except Exception:
                 pass
-        return deterministic_reflect(plan, evidence, tool_results)
+        return deterministic_reflect(plan, evidence, tool_results, active_skills)
 
     def _llm_reflect(
         self,
         plan: TravelPlan,
         evidence: EvidenceBundle,
         tool_results: dict[str, object] | None,
+        active_skills: SkillSelection | None,
     ) -> ReflectionReport:
         """调用LLM以结构化输出进行事实性审查。"""
         structured_model = self._chat_model.with_structured_output(ReflectionReport)  # type: ignore[union-attr]
@@ -73,7 +76,12 @@ class ReflectionService:
             [
                 SystemMessage(content=REFLECTION_SYSTEM_PROMPT),
                 HumanMessage(
-                    content=build_reflection_prompt(plan, evidence, tool_results)
+                    content=build_reflection_prompt(
+                        plan,
+                        evidence,
+                        tool_results,
+                        active_skills=active_skills,
+                    )
                 ),
             ]
         )
@@ -88,6 +96,7 @@ class ReflectionService:
             if flag_key not in existing_flags:
                 report.hallucination_flags.append(flag)
                 existing_flags.add(flag_key)
+        report = _apply_skill_checks(report, plan, active_skills)
         report.checked_claims = max(
             report.checked_claims,
             report.grounded_claims + len(report.hallucination_flags),
@@ -127,6 +136,47 @@ def _coerce_reflection_report(response: object) -> ReflectionReport:
     return ReflectionReport.model_validate(response)
 
 
+def _apply_skill_checks(
+    report: ReflectionReport,
+    plan: TravelPlan,
+    active_skills: SkillSelection | None,
+) -> ReflectionReport:
+    """Add lightweight deterministic skill-compliance hints to the report."""
+
+    if active_skills is None or not active_skills.active_skills:
+        return report
+
+    issues = list(report.issues)
+    suggestions = list(report.suggestions)
+    flags = list(report.hallucination_flags)
+    skill_names = set(active_skills.names)
+
+    if "budget-aware-planner" in skill_names and not plan.budget_items:
+        issues.append("budget-aware-planner expected budget_items, but none were produced.")
+    if "crowd-avoidance-planner" in skill_names and not plan.risk_notices:
+        issues.append(
+            "crowd-avoidance-planner expected crowd risk notices, but none were produced."
+        )
+    if "weather-risk-planner" in skill_names and not plan.alternatives:
+        suggestions.append("Add an indoor or same-district weather backup option.")
+    if "family-travel-planner" in skill_names and _looks_overpacked(plan):
+        suggestions.append("Reduce daily intensity or add rest windows for family/elderly travel.")
+
+    passed = report.passed and not any("expected" in issue for issue in issues)
+    return report.model_copy(
+        update={
+            "hallucination_flags": flags,
+            "issues": issues,
+            "suggestions": suggestions[:5],
+            "passed": passed,
+        }
+    )
+
+
+def _looks_overpacked(plan: TravelPlan) -> bool:
+    return any(len(day.activities) > 5 for day in plan.day_plans)
+
+
 # ---------------------------------------------------------------------------
 # 确定性回退审查
 # ---------------------------------------------------------------------------
@@ -136,6 +186,7 @@ def deterministic_reflect(
     plan: TravelPlan,
     evidence: EvidenceBundle | None,
     tool_results: dict[str, object] | None = None,
+    active_skills: SkillSelection | None = None,
 ) -> ReflectionReport:
     """确定性的、无需LLM的事实性审查。
 
@@ -276,7 +327,7 @@ def deterministic_reflect(
 
     passed = len(flags) == 0 and evidence_coverage >= 0.3
 
-    return ReflectionReport(
+    report = ReflectionReport(
         hallucination_flags=flags,
         evidence_coverage=evidence_coverage,
         confidence_score=confidence_score,
@@ -286,6 +337,7 @@ def deterministic_reflect(
         checked_claims=checked,
         grounded_claims=grounded,
     )
+    return _apply_skill_checks(report, plan, active_skills)
 
 
 # ---------------------------------------------------------------------------

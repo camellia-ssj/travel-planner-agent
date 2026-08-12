@@ -12,7 +12,8 @@ CLARIFICATION_SYSTEM_PROMPT = """\
 1. 目的地（必须）
 2. 游玩天数（重要）
 3. 预算水平（economy经济实惠/standard中等标准/premium高端舒适，默认standard）
-4. 出行人员类型（亲子family_with_children/情侣couple/带老人elderly/朋友friends/独自solo/通用general）
+4. 出行人员类型（亲子family_with_children/情侣couple/带老人elderly/
+   朋友friends/独自solo/通用general）
 
 ## 对话规则
 - 每次最多问1-2个问题，不要连续追问
@@ -22,7 +23,8 @@ CLARIFICATION_SYSTEM_PROMPT = """\
 - 如果用户说"随便"、"推荐"、"你来定"，给出2-3个目的地建议让用户选
 - 用简洁友好的中文回复，控制在80字以内
 - 绝对不要重复问用户已经回答过的问题
-- user_intent 用于标识用户意图: "providing_info"(提供信息), "asking_question"(提问), "ready_to_plan"(准备规划), "vague"(模糊需求)
+- user_intent 用于标识用户意图: "providing_info"(提供信息), "asking_question"(提问),
+  "ready_to_plan"(准备规划), "vague"(模糊需求)
 """
 
 PRESENTATION_SYSTEM_PROMPT = """\

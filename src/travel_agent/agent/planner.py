@@ -22,6 +22,7 @@ from travel_agent.agent.schemas import (
 )
 from travel_agent.memory.models import UserProfile
 from travel_agent.rag.models import EvidenceBundle, SearchResult
+from travel_agent.skills.models import SkillSelection
 
 DEFAULT_AGENT_MODEL = "qwen3-max"
 
@@ -36,6 +37,7 @@ class TravelPlanner(Protocol):
         user_feedback: list[str] | None = None,
         tool_results: dict[str, object] | None = None,
         user_profile: UserProfile | None = None,
+        active_skills: SkillSelection | None = None,
     ) -> TravelPlan:
         """生成结构化的旅行计划。"""
 
@@ -51,6 +53,7 @@ class RuleBasedTravelPlanner:
         user_feedback: list[str] | None = None,
         tool_results: dict[str, object] | None = None,
         user_profile: UserProfile | None = None,
+        active_skills: SkillSelection | None = None,
     ) -> TravelPlan:
         destination = _destination_from(request, evidence)
         results = evidence.results
@@ -74,7 +77,7 @@ class RuleBasedTravelPlanner:
             request=request,
             destination=destination,
             days=request.days,
-            summary=_summary(destination, request, feedback, user_profile),
+            summary=_summary(destination, request, feedback, user_profile, active_skills),
             day_plans=day_plans,
             budget_items=budget_items,
             risk_notices=risk_notices,
@@ -98,6 +101,7 @@ class LangChainStructuredPlanner:
         user_feedback: list[str] | None = None,
         tool_results: dict[str, object] | None = None,
         user_profile: UserProfile | None = None,
+        active_skills: SkillSelection | None = None,
     ) -> TravelPlan:
         try:
             structured_model = self.chat_model.with_structured_output(TravelPlan)
@@ -111,6 +115,7 @@ class LangChainStructuredPlanner:
                             user_feedback=user_feedback or [],
                             tool_results=tool_results,
                             user_profile=user_profile,
+                            active_skills=active_skills,
                         )
                     ),
                 ]
@@ -122,7 +127,12 @@ class LangChainStructuredPlanner:
             if self.fallback is None:
                 raise
             plan = self.fallback.plan(
-                request, evidence, user_feedback=user_feedback, tool_results=tool_results,
+                request,
+                evidence,
+                user_feedback=user_feedback,
+                tool_results=tool_results,
+                user_profile=user_profile,
+                active_skills=active_skills,
             )
             plan.fallback_used = True
             return plan
@@ -134,6 +144,7 @@ class AgentPlannerSettings:
 
     llm_provider: str = "qwen"
     model: str = DEFAULT_AGENT_MODEL
+    temperature: float = 0.0
 
     @classmethod
     def from_env(cls) -> AgentPlannerSettings:
@@ -141,6 +152,9 @@ class AgentPlannerSettings:
             llm_provider=os.getenv("TRAVEL_AGENT_LLM_PROVIDER", "qwen").strip().lower(),
             model=os.getenv("TRAVEL_AGENT_MODEL", DEFAULT_AGENT_MODEL).strip()
             or DEFAULT_AGENT_MODEL,
+            temperature=float(
+                os.getenv("TRAVEL_AGENT_PLANNER_TEMPERATURE", "0")
+            ),
         )
 
 
@@ -165,12 +179,17 @@ def _build_chat_model(settings: AgentPlannerSettings) -> BaseChatModel | None:
             model=settings.model,
             api_key=api_key,
             base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            temperature=settings.temperature,
         )
     if provider == "openai":
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             return None
-        return _chat_openai(model=settings.model, api_key=api_key)
+        return _chat_openai(
+            model=settings.model,
+            api_key=api_key,
+            temperature=settings.temperature,
+        )
     return None
 
 
@@ -178,13 +197,14 @@ def _chat_openai(
     model: str,
     api_key: str,
     base_url: str | None = None,
+    temperature: float = 0.0,
 ) -> BaseChatModel:
     from langchain_openai import ChatOpenAI
 
     kwargs: dict[str, object] = {
         "model": model,
         "api_key": api_key,
-        "temperature": 0,
+        "temperature": temperature,
     }
     if base_url:
         kwargs["base_url"] = base_url
@@ -250,6 +270,7 @@ def _summary(
     request: TravelRequest,
     user_feedback: list[str],
     user_profile: UserProfile | None = None,
+    active_skills: SkillSelection | None = None,
 ) -> str:
     audience = ", ".join(request.audience)
     summary = (
@@ -258,6 +279,8 @@ def _summary(
     )
     if user_profile is not None and user_profile.total_trips > 0:
         summary += f" (returning user, {user_profile.total_trips} previous trips)"
+    if active_skills is not None and active_skills.active_skills:
+        summary += f" Active skills: {', '.join(active_skills.names)}."
     if user_feedback:
         summary += f" Updated with feedback: {user_feedback[-1]}"
     return summary

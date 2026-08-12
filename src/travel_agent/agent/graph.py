@@ -16,11 +16,13 @@ from travel_agent.agent.nodes import (
     reflect_node,
     retrieve_evidence_node,
     save_trip_memory_node,
+    select_skills_node,
     tool_node,
     validate_plan_node,
 )
 from travel_agent.agent.planner import TravelPlanner
 from travel_agent.agent.state import TravelAgentState
+from travel_agent.skills.registry import SkillRegistry
 
 # langchain_core._api.deprecation 在首次导入时会在位置0注册一个
 # 针对 LangChainPendingDeprecationWarning 的 ``simplefilter("default")``。
@@ -67,6 +69,7 @@ def build_travel_agent_graph(
     checkpointer: Any | None = None,
     memory_service: MemoryService | None = None,
     reflection_service: object | None = None,
+    skill_registry: SkillRegistry | None = None,
     max_reflection_retries: int = DEFAULT_MAX_RETRIES,
 ) -> Any:
     """构建并编译确定性MVP旅行智能体图。
@@ -93,6 +96,11 @@ def build_travel_agent_graph(
             lambda state: load_user_profile_node(state, memory_service),
         )
     graph.add_node("parse_user_request", parse_user_request_node)
+    if skill_registry is not None:
+        graph.add_node(
+            "select_skills",
+            lambda state: select_skills_node(state, skill_registry),
+        )
     graph.add_node(
         "retrieve_evidence",
         lambda state: retrieve_evidence_node(state, rag_service),
@@ -122,7 +130,11 @@ def build_travel_agent_graph(
         graph.add_edge("load_user_profile", "parse_user_request")
     else:
         graph.add_edge(START, "parse_user_request")
-    graph.add_edge("parse_user_request", "retrieve_evidence")
+    if skill_registry is not None:
+        graph.add_edge("parse_user_request", "select_skills")
+        graph.add_edge("select_skills", "retrieve_evidence")
+    else:
+        graph.add_edge("parse_user_request", "retrieve_evidence")
     graph.add_edge("retrieve_evidence", "deterministic_tools")
     graph.add_edge("deterministic_tools", "generate_plan")
     graph.add_edge("generate_plan", "validate_plan")
@@ -152,6 +164,7 @@ def build_travel_agent_resume_graph(
     checkpointer: Any | None = None,
     memory_service: MemoryService | None = None,
     reflection_service: object | None = None,
+    skill_registry: SkillRegistry | None = None,
     max_reflection_retries: int = DEFAULT_MAX_RETRIES,
 ) -> Any:
     """构建并编译一个恢复检查点状态并重新规划的图。
@@ -179,6 +192,11 @@ def build_travel_agent_resume_graph(
             lambda state: load_user_profile_node(state, memory_service),
         )
     graph.add_node("apply_feedback", apply_feedback_node)
+    if skill_registry is not None:
+        graph.add_node(
+            "select_skills",
+            lambda state: select_skills_node(state, skill_registry),
+        )
     if rag_service is not None:
         graph.add_node(
             "retrieve_evidence",
@@ -210,10 +228,18 @@ def build_travel_agent_resume_graph(
     else:
         graph.add_edge(START, "apply_feedback")
     if rag_service is not None:
-        graph.add_edge("apply_feedback", "retrieve_evidence")
+        if skill_registry is not None:
+            graph.add_edge("apply_feedback", "select_skills")
+            graph.add_edge("select_skills", "retrieve_evidence")
+        else:
+            graph.add_edge("apply_feedback", "retrieve_evidence")
         graph.add_edge("retrieve_evidence", "deterministic_tools")
     else:
-        graph.add_edge("apply_feedback", "deterministic_tools")
+        if skill_registry is not None:
+            graph.add_edge("apply_feedback", "select_skills")
+            graph.add_edge("select_skills", "deterministic_tools")
+        else:
+            graph.add_edge("apply_feedback", "deterministic_tools")
     graph.add_edge("deterministic_tools", "generate_plan")
     graph.add_edge("generate_plan", "validate_plan")
     graph.add_edge("validate_plan", "reflect")

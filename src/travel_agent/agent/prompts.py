@@ -5,6 +5,7 @@ from __future__ import annotations
 from travel_agent.agent.schemas import TravelPlan, TravelRequest
 from travel_agent.memory.models import UserProfile
 from travel_agent.rag.models import EvidenceBundle, SearchResult
+from travel_agent.skills.models import SkillSelection
 
 PLANNER_SYSTEM_PROMPT = (
     "你是一个严谨的旅行规划代理。请仅根据提供的 RAG 证据生成结构化的 TravelPlan。"
@@ -27,6 +28,7 @@ def build_planner_prompt(
     user_feedback: list[str] | None = None,
     tool_results: dict[str, object] | None = None,
     user_profile: UserProfile | None = None,
+    active_skills: SkillSelection | None = None,
 ) -> str:
     """构建用于结构化旅行规划的用户提示词。
 
@@ -55,6 +57,12 @@ def build_planner_prompt(
         profile_text = user_profile.to_context_text()
         if profile_text:
             prompt += f"{profile_text}\n\n"
+    if active_skills is not None and active_skills.active_skills:
+        prompt += (
+            "行为层 Skill 策略:\n"
+            f"{active_skills.planner_prompt_text()}\n"
+            f"选择原因: {active_skills.selection_reason}\n\n"
+        )
     prompt += (
         "RAG 证据:\n"
         f"{evidence_text or '未检索到证据。'}\n\n"
@@ -112,6 +120,7 @@ def build_reflection_prompt(
     plan: TravelPlan,
     evidence: EvidenceBundle,
     tool_results: dict[str, object] | None = None,
+    active_skills: SkillSelection | None = None,
 ) -> str:
     """构建用于计划反思/事实性审查的用户提示词。
 
@@ -134,6 +143,11 @@ def build_reflection_prompt(
             f"{tool_section}\n\n"
             "上述工具结果是确定性的 ground truth。"
             "请标记任何与之矛盾的计划内容。\n\n"
+        )
+    if active_skills is not None and active_skills.active_skills:
+        prompt += (
+            "=== 行为层 Skill 审校规则 ===\n"
+            f"{active_skills.reflection_prompt_text()}\n\n"
         )
     prompt += (
         "指令:\n"

@@ -28,6 +28,8 @@ def display_plan_payload(payload: dict[str, Any]) -> None:
         console.print(f"[cyan]thread_id:[/cyan] {payload['thread_id']}")
     if payload.get("user_profile"):
         _print_user_profile(payload["user_profile"])
+    if payload.get("active_skills"):
+        _print_active_skills(payload["active_skills"])
     if payload.get("user_feedback"):
         _print_list("用户反馈", payload["user_feedback"])
     _print_request(request)
@@ -131,6 +133,23 @@ def _print_user_profile(profile: dict[str, Any]) -> None:
         )
     if profile.get("preferences_summary"):
         table.add_row("摘要", profile.get("preferences_summary", ""))
+    console.print(table)
+
+
+def _print_active_skills(selection: dict[str, Any]) -> None:
+    skills = selection.get("active_skills", [])
+    if not skills:
+        return
+    table = Table(title="行为层 Skills")
+    table.add_column("Skill", style="cyan")
+    table.add_column("命中", style="green")
+    table.add_column("工具策略", overflow="fold")
+    for skill in skills:
+        table.add_row(
+            str(skill.get("name", "")),
+            ", ".join(skill.get("matched_keywords", [])),
+            ", ".join(skill.get("required_tools", [])),
+        )
     console.print(table)
 
 

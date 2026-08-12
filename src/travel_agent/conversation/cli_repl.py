@@ -6,23 +6,20 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
-import os
-import sys
 import uuid
 from pathlib import Path
 from typing import Any
 
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from rich.console import Console
-from rich.live import Live
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
 from travel_agent.agent.display import display_plan_payload
-from travel_agent.conversation.state import ConversationState
 
 logger = logging.getLogger(__name__)
 
@@ -58,10 +55,8 @@ def _setup_readline() -> None:
     if not _HAS_READLINE:
         return
     histfile = Path.home() / ".travel_agent_history"
-    try:
+    with contextlib.suppress(FileNotFoundError, OSError):
         readline.read_history_file(str(histfile))
-    except (FileNotFoundError, OSError):
-        pass
     readline.set_history_length(1000)
 
 
@@ -70,10 +65,8 @@ def _save_readline() -> None:
     if not _HAS_READLINE:
         return
     histfile = Path.home() / ".travel_agent_history"
-    try:
+    with contextlib.suppress(OSError):
         readline.write_history_file(str(histfile))
-    except OSError:
-        pass
 
 
 def _add_history(line: str) -> None:
@@ -171,13 +164,22 @@ class ConversationREPL:
         return result
 
     def _print_ai_messages(self, result: dict[str, Any]) -> None:
-        """仅打印图中的新 AI 消息。"""
+        """仅打印图中的新 AI 消息。
+
+        只在规划本轮被实际调用（plan_generation_count 增加）时才展示计划面板，
+        避免确认/追问等复用现有计划的轮次重复输出结构化数据。
+        """
         messages = result.get("messages", [])
 
-        # 检查是否有计划数据需要展示
-        planning_output = result.get("planning_output", {})
-        if planning_output and planning_output.get("plan"):
-            self._print_plan_panel(planning_output)
+        # 检查本轮是否触发了新的规划
+        prev_plan_count = self._cached_state.get("plan_generation_count", 0)
+        new_plan_count = result.get("plan_generation_count", 0)
+        planning_just_invoked = new_plan_count > prev_plan_count
+
+        if planning_just_invoked:
+            planning_output = result.get("planning_output", {})
+            if planning_output and planning_output.get("plan"):
+                self._print_plan_panel(planning_output)
 
         # 打印最后一条 AI 消息（最新回复）
         ai_messages = [m for m in messages if isinstance(m, AIMessage)]
@@ -195,7 +197,7 @@ class ConversationREPL:
                     title_align="left",
                 ))
 
-        # 如果对话自然结束，停止 REPL
+        # 如果对话自然结束，显示道别提示
         phase = result.get("phase", "")
         feedback_action = result.get("feedback_action", "")
         if phase == "feedback" and feedback_action == "approve":
@@ -231,17 +233,17 @@ class ConversationREPL:
     # ── 用户输入 ─────────────────────────────────────────────────
 
     def _prompt_user(self) -> str:
-        """显示提示符并读取用户输入。"""
+        """显示提示符并读取用户输入。
+
+        KeyboardInterrupt / EOFError 向外层透传，由 run() 统一处理退出。
+        """
         self.console.print()
-        try:
-            return input(f"{Text('您', style='bold green')}: ")
-        except (KeyboardInterrupt, EOFError):
-            return "/quit"
+        return input(f"{Text('您', style='bold green')}: ")
 
     # ── 欢迎界面 ─────────────────────────────────────────────
 
     def _print_welcome(self) -> None:
-        """打印欢迎横幅。"""
+        """打印欢迎横幅（标题行）。"""
         self.console.print()
         self.console.print(
             Panel.fit(
@@ -253,7 +255,7 @@ class ConversationREPL:
         )
 
     def _print_greeting(self) -> None:
-        """打印初始问候语。"""
+        """打印初始问候语（小旅对话气泡）。"""
         greeting = (
             "您好！👋 我是您的旅行规划顾问**小旅**。\n\n"
             "我可以帮您规划旅行路线，提供预算估算、拥挤风险提醒和备选方案。\n"
@@ -264,7 +266,10 @@ class ConversationREPL:
             "- 出行人员（亲子/情侣/朋友...）\n\n"
             "现在，告诉我您想去哪里吧！"
         )
-        self.console.print(Panel.fit(greeting, border_style="cyan", title="小旅", title_align="left"))
+        self.console.print(
+            Panel.fit(greeting, border_style="cyan", title="小旅", title_align="left")
+        )
+        self.console.print()
 
     # ── 斜杠命令处理 ─────────────────────────────────────────────
 

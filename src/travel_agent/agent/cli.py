@@ -13,11 +13,17 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import typer
+from dotenv import load_dotenv
 from rich.console import Console
 from rich.panel import Panel
-from rich.table import Table
 
 from travel_agent.agent.display import display_plan_payload
+from travel_agent.agent.dspy_cli import dspy_app
+from travel_agent.agent.dspy_planner import (
+    DSPyOptimizedPlanner,
+    TravelPlanningModule,
+    load_compiled_planner,
+)
 from travel_agent.agent.evaluation import (
     AgentEvalMetrics,
     build_eval_report,
@@ -26,14 +32,23 @@ from travel_agent.agent.evaluation import (
 )
 from travel_agent.agent.graph import build_travel_agent_graph, build_travel_agent_resume_graph
 from travel_agent.agent.nodes import EvidenceService
-from travel_agent.agent.planner import TravelPlanner, build_default_planner
+from travel_agent.agent.planner import (
+    AgentPlannerSettings,
+    TravelPlanner,
+    build_default_planner,
+)
 from travel_agent.agent.reflection import ReflectionService, build_reflection_service
 from travel_agent.agent.schemas import TravelPlan
+from travel_agent.agent.self_consistency import (
+    SelfConsistencyPlanner,
+    SelfConsistencySettings,
+)
 from travel_agent.memory.models import UserProfile
 from travel_agent.memory.store import MemoryStore
 from travel_agent.observability.tracer import AgentTracer, get_tracer
 from travel_agent.rag.api import create_rag_service
 from travel_agent.rag.config import EmbeddingProviderName
+from travel_agent.skills.registry import SkillRegistry, build_skill_registry
 
 app = typer.Typer(
     name="travel-agent",
@@ -41,6 +56,8 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 console = Console()
+load_dotenv()
+app.add_typer(dspy_app)
 EMBEDDING_PROVIDER_HELP = "auto, qwen, dashscope, openai, sentence-transformers 或 local。"
 DEFAULT_CHECKPOINT_PATH = Path("data/agent_checkpoints.sqlite")
 DEFAULT_MEMORY_PATH = Path("data/user_memory.sqlite")
@@ -99,6 +116,30 @@ def plan(
         typer.Option("--memory-path", help="SQLite 记忆数据库路径。"),
     ] = DEFAULT_MEMORY_PATH,
     as_json: Annotated[bool, typer.Option("--json", help="输出机器可读的 JSON 格式。")] = False,
+    skills_enabled: Annotated[
+        bool,
+        typer.Option("--skills/--no-skills", help="启用项目级 .claude/skills 行为层。"),
+    ] = True,
+    skills_dir: Annotated[
+        list[Path] | None,
+        typer.Option("--skills-dir", help="额外项目 Skill 目录，可重复传入。"),
+    ] = None,
+    optimize: Annotated[
+        bool,
+        typer.Option("--optimize/--no-optimize", help="使用 DSPy 编译优化的 Planner。"),
+    ] = False,
+    self_consistency: Annotated[
+        bool,
+        typer.Option("--self-consistency/--no-sc", help="启用 Self-Consistency 多路径投票。"),
+    ] = False,
+    temperature: Annotated[
+        float | None,
+        typer.Option("--temperature", help="LLM 采样温度（默认 0.0，确定性输出）。", min=0.0, max=2.0),
+    ] = None,
+    num_candidates: Annotated[
+        int,
+        typer.Option("--num-candidates", help="SC 候选计划数。", min=1, max=7),
+    ] = 3,
 ) -> None:
     """生成结构化旅行计划，基于 RAG 证据检索。"""
 
@@ -109,16 +150,23 @@ def plan(
         query_rewrite=query_rewrite,
     )
     memory_store = _build_memory_store(memory_path) if user_id else None
+    planner = build_optimized_planner(
+        optimize=optimize,
+        self_consistency=self_consistency,
+        temperature=temperature,
+        num_candidates=num_candidates,
+    )
     result = run_plan(
         request,
         rag_service,
-        planner=build_default_planner(),
+        planner=planner,
         destination=destination,
         days=days,
         thread_id=thread_id,
         checkpoint_path=checkpoint_path,
         user_id=user_id,
         memory_store=memory_store,
+        skill_registry=_build_skill_registry(skills_enabled, skills_dir),
     )
     if as_json:
         console.print_json(json.dumps(result, ensure_ascii=False))
@@ -160,6 +208,30 @@ def resume(
         typer.Option("--memory-path", help="SQLite 记忆数据库路径。"),
     ] = DEFAULT_MEMORY_PATH,
     as_json: Annotated[bool, typer.Option("--json", help="输出机器可读的 JSON 格式。")] = False,
+    skills_enabled: Annotated[
+        bool,
+        typer.Option("--skills/--no-skills", help="启用项目级 .claude/skills 行为层。"),
+    ] = True,
+    skills_dir: Annotated[
+        list[Path] | None,
+        typer.Option("--skills-dir", help="额外项目 Skill 目录，可重复传入。"),
+    ] = None,
+    optimize: Annotated[
+        bool,
+        typer.Option("--optimize/--no-optimize", help="使用 DSPy 编译优化的 Planner。"),
+    ] = False,
+    self_consistency: Annotated[
+        bool,
+        typer.Option("--self-consistency/--no-sc", help="启用 Self-Consistency 多路径投票。"),
+    ] = False,
+    temperature: Annotated[
+        float | None,
+        typer.Option("--temperature", help="LLM 采样温度（默认 0.0，确定性输出）。", min=0.0, max=2.0),
+    ] = None,
+    num_candidates: Annotated[
+        int,
+        typer.Option("--num-candidates", help="SC 候选计划数。", min=1, max=7),
+    ] = 3,
 ) -> None:
     """恢复检查点中的计划并应用用户反馈。
 
@@ -174,14 +246,21 @@ def resume(
         query_rewrite=query_rewrite,
     )
     memory_store = _build_memory_store(memory_path) if user_id else None
+    planner = build_optimized_planner(
+        optimize=optimize,
+        self_consistency=self_consistency,
+        temperature=temperature,
+        num_candidates=num_candidates,
+    )
     result = resume_plan(
         thread_id=thread_id,
         feedback=feedback,
         rag_service=rag_service,
-        planner=build_default_planner(),
+        planner=planner,
         checkpoint_path=checkpoint_path,
         user_id=user_id,
         memory_store=memory_store,
+        skill_registry=_build_skill_registry(skills_enabled, skills_dir),
     )
     if as_json:
         console.print_json(json.dumps(result, ensure_ascii=False))
@@ -228,6 +307,14 @@ def chat(
         bool,
         typer.Option("--streaming/--no-streaming", help="启用流式输出。"),
     ] = True,
+    skills_enabled: Annotated[
+        bool,
+        typer.Option("--skills/--no-skills", help="启用项目级 .claude/skills 行为层。"),
+    ] = True,
+    skills_dir: Annotated[
+        list[Path] | None,
+        typer.Option("--skills-dir", help="额外项目 Skill 目录，可重复传入。"),
+    ] = None,
 ) -> None:
     """启动交互式对话旅行规划会话。
 
@@ -238,12 +325,13 @@ def chat(
     支持斜杠命令: /plan, /feedback, /profile, /history,
     /reset, /export, /help, /quit。
     """
-    from travel_agent.agent.planner import _build_chat_model, AgentPlannerSettings
+    import logging
+
+    from travel_agent.agent.planner import AgentPlannerSettings, _build_chat_model
     from travel_agent.conversation.cli_repl import ConversationREPL
     from travel_agent.conversation.graph import build_conversation_graph
 
-    import logging
-    logging.root.handlers = [logging.NullHandler()]
+    logging.getLogger("travel_agent").addHandler(logging.NullHandler())
 
     rag_service = _build_rag_service(
         persist_dir=persist_dir,
@@ -293,6 +381,7 @@ def chat(
             checkpointer=checkpointer,
             memory_service=memory_store,
             reflection_service=reflection_service,
+            skill_registry=_build_skill_registry(skills_enabled, skills_dir),
         )
         repl = ConversationREPL(
             graph=conv_graph,
@@ -371,6 +460,7 @@ def run_plan(
     tracer: AgentTracer | None = None,
     user_id: str | None = None,
     memory_store: MemoryStore | None = None,
+    skill_registry: SkillRegistry | None = None,
 ) -> dict[str, Any]:
     """运行 Agent 图并返回可序列化的结果。"""
 
@@ -397,6 +487,7 @@ def run_plan(
             planner=planner,
             memory_service=memory_store,
             reflection_service=reflection_service,
+            skill_registry=skill_registry,
         )
         final_state = graph.invoke(initial_state)
     else:
@@ -407,6 +498,7 @@ def run_plan(
                 checkpointer=checkpointer,
                 memory_service=memory_store,
                 reflection_service=reflection_service,
+                skill_registry=skill_registry,
             )
             final_state = graph.invoke(
                 initial_state,
@@ -422,6 +514,9 @@ def run_plan(
         active_tracer.record_parse(trace_ctx, request_obj)
     if evidence is not None:
         active_tracer.record_retrieval(trace_ctx, evidence)
+    active_skills = final_state.get("active_skills")
+    if active_skills is not None:
+        active_tracer.record_skills(trace_ctx, active_skills)
     active_tracer.record_planner(
         trace_ctx,
         model=os.getenv("TRAVEL_AGENT_MODEL", "qwen3-max"),
@@ -452,6 +547,7 @@ def resume_plan(
     checkpoint_path: Path = DEFAULT_CHECKPOINT_PATH,
     user_id: str | None = None,
     memory_store: MemoryStore | None = None,
+    skill_registry: SkillRegistry | None = None,
 ) -> dict[str, Any]:
     """恢复检查点中的 Agent 线程并重新生成计划。
 
@@ -470,6 +566,7 @@ def resume_plan(
             checkpointer=checkpointer,
             memory_service=memory_store,
             reflection_service=reflection_service,
+            skill_registry=skill_registry,
         )
         config = _thread_config(thread_id)
         snapshot = graph.get_state(config)
@@ -511,8 +608,10 @@ def _state_payload(final_state: dict[str, Any], thread_id: str) -> dict[str, Any
     tool_budget = final_state.get("tool_budget")
     tool_crowd = final_state.get("tool_crowd_risk")
     tool_alt = final_state.get("tool_alternatives")
+    tool_policy = final_state.get("tool_policy")
     user_profile = final_state.get("user_profile")
     reflection_report = final_state.get("reflection_report")
+    active_skills = final_state.get("active_skills")
 
     payload: dict[str, Any] = {
         "thread_id": thread_id,
@@ -520,7 +619,7 @@ def _state_payload(final_state: dict[str, Any], thread_id: str) -> dict[str, Any
         "user_feedback": final_state.get("user_feedback", []),
         "request": final_state["request"].model_dump(),
         "plan": plan.model_dump(),
-        "evidence": final_state["evidence"].as_dict(),
+        "evidence": final_state["evidence"].as_dict() if final_state.get("evidence") else None,
         "validation": {
             "is_valid": final_state.get("is_valid", False),
             "errors": final_state.get("validation_errors", []),
@@ -528,8 +627,11 @@ def _state_payload(final_state: dict[str, Any], thread_id: str) -> dict[str, Any
         "tool_budget": tool_budget.model_dump() if tool_budget is not None else None,
         "tool_crowd_risk": tool_crowd.model_dump() if tool_crowd is not None else None,
         "tool_alternatives": tool_alt.model_dump() if tool_alt is not None else None,
+        "tool_policy": tool_policy or {},
         "reflection": reflection_report.model_dump() if reflection_report is not None else None,
     }
+    if active_skills is not None:
+        payload["active_skills"] = active_skills.model_dump()
     if user_profile is not None and isinstance(user_profile, UserProfile):
         payload["user_profile"] = user_profile.model_dump()
     return payload
@@ -581,6 +683,78 @@ def _build_memory_store(path: Path) -> MemoryStore:
     return MemoryStore(path)
 
 
+def _build_skill_registry(
+    enabled: bool,
+    skill_dirs: list[Path] | None = None,
+) -> SkillRegistry | None:
+    return build_skill_registry(
+        project_root=Path.cwd(),
+        skill_dirs=skill_dirs,
+        enabled=enabled,
+    )
+
+
+def build_optimized_planner(
+    optimize: bool = False,
+    self_consistency: bool = False,
+    temperature: float | None = None,
+    num_candidates: int = 3,
+    dspy_load_path: Path = Path("data/dspy/compiled_planner.json"),
+) -> TravelPlanner:
+    """构建可选的 DSPy 优化 + Self-Consistency 规划器。
+
+    按层次组合：
+    - 基础层：LangChainStructuredPlanner（含 temperature 控制 + RuleBasedTravelPlanner 回退）
+    - DSPy 层：DSPyOptimizedPlanner（加载编译模块，失败时回退到基础层）
+    - SC 层：SelfConsistencyPlanner（N 路生成 + 投票择优）
+
+    参数
+    ----------
+    optimize:
+        是否加载并使用 DSPy 编译模块。
+    self_consistency:
+        是否启用多路径投票。
+    temperature:
+        LLM 采样温度（None 时从环境变量读取，默认 0.0）。
+    num_candidates:
+        SC 候选数。
+    dspy_load_path:
+        DSPy 编译产物路径。
+    """
+    settings = AgentPlannerSettings.from_env()
+    if temperature is not None:
+        settings = AgentPlannerSettings(
+            llm_provider=settings.llm_provider,
+            model=settings.model,
+            temperature=temperature,
+        )
+
+    # ── 基础层 ──────────────────────────────────────────────────
+    base_planner = build_default_planner(settings)
+
+    # ── DSPy 层 ──────────────────────────────────────────────────
+    if optimize:
+        module = load_compiled_planner(dspy_load_path)
+        if module is None:
+            module = TravelPlanningModule()
+            module.ensure_module()
+        base_planner = DSPyOptimizedPlanner(
+            dspy_module=module,
+            fallback=base_planner,
+        )
+
+    # ── SC 层 ───────────────────────────────────────────────────
+    if self_consistency:
+        sc_settings = SelfConsistencySettings(num_candidates=num_candidates)
+        base_planner = SelfConsistencyPlanner(
+            inner_planner=base_planner,
+            reflection_service=build_reflection_service(),
+            settings=sc_settings,
+        )
+
+    return base_planner
+
+
 def _print_plan(payload: dict[str, Any]) -> None:
     """美化打印旅行规划结果（委托给 display 模块）。"""
     display_plan_payload(payload)
@@ -615,7 +789,9 @@ def _print_eval_report(
         return "[red]待检查[/red]"
 
     table.add_row("天数匹配率", f"{m['days_match_rate']:.2%}", _status(m["days_match_rate"]))
-    table.add_row("预算覆盖率", f"{m['budget_present_rate']:.2%}", _status(m["budget_present_rate"]))
+    table.add_row(
+        "预算覆盖率", f"{m['budget_present_rate']:.2%}", _status(m["budget_present_rate"])
+    )
     table.add_row("风险提示率", f"{m['risk_notices_rate']:.2%}", _status(m["risk_notices_rate"]))
     table.add_row(
         "证据来源覆盖率",
